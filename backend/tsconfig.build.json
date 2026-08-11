@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  // `rootDir` lives here rather than in the base config: the base config also covers
+  // `tests/`, which sits outside `src/` and would otherwise fail to typecheck.
+  "compilerOptions": {
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "tests", "src/**/*.test.ts"]
+}

@@ -1,0 +1,151 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /*
+   * A restrained, high-contrast palette. Deep indigo carries primary actions,
+   * money uses amber only where a threshold is breached, and the neutral scale
+   * does the rest — the interface should read as an operations console, not a
+   * marketing page.
+   */
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 231 48% 40%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+
+    --accent: 226 100% 97%;
+    --accent-foreground: 231 48% 34%;
+
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 60% 32%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 33 92% 44%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 231 48% 48%;
+
+    --sidebar: 224 42% 15%;
+    --sidebar-foreground: 220 14% 88%;
+    --sidebar-accent: 231 40% 24%;
+    --sidebar-border: 224 30% 24%;
+
+    --chart-1: 231 48% 48%;
+    --chart-2: 152 55% 40%;
+    --chart-3: 33 90% 50%;
+    --chart-4: 262 52% 55%;
+    --chart-5: 199 78% 42%;
+
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --background: 224 43% 9%;
+    --foreground: 210 20% 96%;
+
+    --card: 224 39% 12%;
+    --card-foreground: 210 20% 96%;
+
+    --popover: 224 39% 12%;
+    --popover-foreground: 210 20% 96%;
+
+    --primary: 231 62% 65%;
+    --primary-foreground: 224 43% 9%;
+
+    --secondary: 223 32% 18%;
+    --secondary-foreground: 210 20% 96%;
+
+    --muted: 223 32% 18%;
+    --muted-foreground: 218 12% 65%;
+
+    --accent: 231 34% 22%;
+    --accent-foreground: 231 70% 82%;
+
+    --destructive: 0 62% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 48% 45%;
+    --success-foreground: 224 43% 9%;
+
+    --warning: 33 85% 55%;
+    --warning-foreground: 224 43% 9%;
+
+    --border: 223 28% 22%;
+    --input: 223 28% 22%;
+    --ring: 231 62% 65%;
+
+    --sidebar: 224 45% 8%;
+    --sidebar-foreground: 218 14% 80%;
+    --sidebar-accent: 231 36% 20%;
+    --sidebar-border: 224 30% 18%;
+
+    --chart-1: 231 62% 68%;
+    --chart-2: 152 50% 52%;
+    --chart-3: 33 85% 60%;
+    --chart-4: 262 60% 70%;
+    --chart-5: 199 70% 58%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Tabular figures keep money columns aligned down the page. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer components {
+  /* Horizontal scroll is contained to the table, never the page body. */
+  .table-scroll {
+    @apply w-full overflow-x-auto;
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden rounded-md bg-muted;
+  }
+
+  .skeleton::after {
+    @apply absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-black/5 to-transparent;
+    content: '';
+  }
+
+  .dark .skeleton::after {
+    @apply via-white/5;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
