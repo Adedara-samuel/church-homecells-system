@@ -19,8 +19,10 @@ export async function connectDatabase(uri = env.MONGODB_URI): Promise<typeof mon
     .connect(uri, {
       dbName: env.MONGODB_DB_NAME,
       serverSelectionTimeoutMS: 10_000,
-      maxPoolSize: 20,
-      minPoolSize: 2,
+      // Each warm serverless container holds its own pool, and there may be many of
+      // them, so the per-container cap is small and idle sockets are not pinned.
+      maxPoolSize: env.isServerless ? 5 : 20,
+      minPoolSize: env.isServerless ? 0 : 2,
       retryWrites: true,
     })
     .then((m) => {

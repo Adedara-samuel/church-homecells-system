@@ -590,10 +590,33 @@ npm start
 - Point `MONGODB_URI` at a replica set (MongoDB Atlas M10+ or self-hosted)
 - Run `npm run seed` once against a fresh database (never `seed:fresh` in production)
 
+### Backend (Vercel serverless)
+
+The repository is a monorepo, so the backend needs **its own Vercel project** with
+**Root Directory set to `backend`**. `backend/vercel.json` then routes every path to
+`backend/api/index.ts`, which default-exports the Express app — Vercel rejects a
+module whose default export is not a handler ("Invalid export found in module").
+`src/server.ts` is for long-running hosts only and is never used on Vercel.
+
+- Root Directory: `backend` · Framework Preset: *Other*
+- Environment variables: everything from `.env.example`, plus `NODE_ENV=production`
+- `MONGODB_URI` must point at Atlas (or another host reachable from Vercel), and the
+  Atlas network access list must allow `0.0.0.0/0` — Vercel egress IPs are not fixed
+- `CORS_ORIGINS` must contain the frontend origin with **no trailing slash**
+- Verify with `curl https://<backend>.vercel.app/health` and `…/api/v1`
+- Set `ENABLE_CRON_JOBS=false`: serverless containers are frozen between requests, so
+  `node-cron` never fires. Use Vercel Cron (or a small always-on worker) to hit the
+  job endpoints on a schedule instead.
+
 ### Frontend (Vercel, Netlify, Node host)
 
+- Separate Vercel project with **Root Directory set to `frontend`**
 - Build `npm --workspace frontend run build`, start `next start`
-- Set `NEXT_PUBLIC_API_URL` to the public API URL
+- Set `NEXT_PUBLIC_API_URL` to the public API URL **including `/api/v1` and without a
+  trailing slash** — e.g. `https://<backend>.vercel.app/api/v1`. A trailing slash
+  produces `//auth/login`, which Vercel answers with a 308 redirect; a redirect on a
+  CORS preflight is rejected by the browser ("Redirect is not allowed for a preflight
+  request"). Redeploy after changing it — `NEXT_PUBLIC_*` is baked in at build time.
 - Add the frontend origin to the backend's `CORS_ORIGINS`
 
 ### Production checklist

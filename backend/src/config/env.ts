@@ -96,9 +96,9 @@ if (!parsed.success) {
   const issues = parsed.error.issues
     .map((i) => `  - ${i.path.join('.') || '(root)'}: ${i.message}`)
     .join('\n');
-  // eslint-disable-next-line no-console
-  console.error(`Invalid environment configuration:\n${issues}`);
-  process.exit(1);
+  // Thrown rather than `process.exit(1)`: in a serverless container an exit code
+  // is reported as an opaque crash, whereas the thrown message reaches the logs.
+  throw new Error(`Invalid environment configuration:\n${issues}`);
 }
 
 const raw = parsed.data;
@@ -106,6 +106,9 @@ const raw = parsed.data;
 export const env = {
   ...raw,
   isProduction: raw.NODE_ENV === 'production',
+  // Vercel sets this in every runtime; used to size the DB pool and to keep
+  // long-running work (cron jobs) out of a container that gets frozen.
+  isServerless: Boolean(process.env.VERCEL),
   isTest: raw.NODE_ENV === 'test',
   isDevelopment: raw.NODE_ENV === 'development',
   corsOrigins: raw.CORS_ORIGINS.split(',')

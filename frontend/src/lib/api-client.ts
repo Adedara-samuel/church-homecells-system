@@ -1,7 +1,34 @@
 'use client';
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
+const DEFAULT_API_PREFIX = '/api/v1';
+
+/**
+ * Normalises `NEXT_PUBLIC_API_URL` so a stray trailing slash cannot produce a
+ * double-slash request path. `https://api.example.com//auth/login` is not the same
+ * URL as `/auth/login`: Vercel answers it with a 308 to the collapsed path, and a
+ * redirect on a CORS preflight is rejected outright by the browser.
+ *
+ * A value with no path (just an origin) also gets the default API prefix appended,
+ * since every route lives behind it.
+ */
+function resolveApiBase(): string {
+  const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (!configured) return `http://localhost:4000${DEFAULT_API_PREFIX}`;
+
+  const withoutTrailingSlash = configured.replace(/\/+$/, '');
+  try {
+    const url = new URL(withoutTrailingSlash);
+    if (url.pathname === '/' || url.pathname === '') {
+      return `${url.origin}${DEFAULT_API_PREFIX}`;
+    }
+  } catch {
+    // Not an absolute URL (e.g. a relative "/api/v1" proxied by the frontend) —
+    // the trailing-slash trim above is all that is needed.
+  }
+  return withoutTrailingSlash;
+}
+
+const API_BASE = resolveApiBase();
 
 const ACCESS_TOKEN_KEY = 'chms.accessToken';
 const REFRESH_TOKEN_KEY = 'chms.refreshToken';
@@ -85,7 +112,12 @@ export interface RequestOptions {
 }
 
 function buildUrl(path: string, query?: RequestOptions['query']): string {
-  const url = new URL(`${API_BASE}${path.startsWith('/') ? path : `/${path}`}`);
+  const href = `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+  // A relative base ("/api/v1") is only resolvable against the current document.
+  const url = new URL(
+    href,
+    typeof window === 'undefined' ? 'http://localhost' : window.location.origin,
+  );
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       if (value === undefined || value === null || value === '') continue;

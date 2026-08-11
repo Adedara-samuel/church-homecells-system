@@ -29,6 +29,25 @@ import { uploadRouter } from './modules/uploads/upload.controller';
 import { userRouter } from './modules/users/user.controller';
 import { zoneRouter } from './modules/zones/zone.controller';
 
+/**
+ * An entry in `CORS_ORIGINS` matches literally, or as a wildcard when it contains
+ * `*` — `https://*.vercel.app` covers the preview deployments Vercel creates per
+ * branch, whose hostnames are not known ahead of time. A bare `*` allows any
+ * origin (credentialed requests still get the reflected origin, never `*`).
+ */
+function isOriginAllowed(origin: string): boolean {
+  const normalized = origin.replace(/\/+$/, '');
+  return env.corsOrigins.some((allowed) => {
+    if (allowed === '*') return true;
+    if (!allowed.includes('*')) return allowed === normalized;
+    const pattern = new RegExp(
+      `^${allowed.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^.]*')}$`,
+      'i',
+    );
+    return pattern.test(normalized);
+  });
+}
+
 export function createApp(): Application {
   const app = express();
 
@@ -48,9 +67,13 @@ export function createApp(): Application {
     cors({
       origin(origin, callback) {
         // Same-origin and server-to-server requests carry no Origin header.
-        const normalizedOrigin = origin ? origin.replace(/\/+$/, '') : '';
-        if (!origin || env.corsOrigins.includes(normalizedOrigin)) return callback(null, true);
-        callback(new Error(`Origin ${origin} is not permitted by CORS policy`));
+        if (!origin || isOriginAllowed(origin)) return callback(null, true);
+        // Answer without the `Access-Control-Allow-Origin` header rather than
+        // throwing: an error here is turned into a 500 by the error handler, and a
+        // 500 on a preflight is far harder to diagnose in the browser than a plain
+        // "origin not allowed".
+        logger.warn({ origin }, 'Blocked by CORS policy');
+        callback(null, false);
       },
       credentials: true,
       methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
