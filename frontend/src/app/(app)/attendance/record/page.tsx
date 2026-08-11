@@ -5,12 +5,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Save, Users, XCircle } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
-import { cn, formatNumber, humanise, initials, mostRecentWeekday } from '@/lib/utils';
+import { cn, formatNumber, humanise, initials, mostRecentWeekday, toDateInput } from '@/lib/utils';
 import { attendanceService, homecellsService } from '@/services';
 import { queryKeys, useApiMutation } from '@/hooks/use-api';
 import type { AttendanceStatus, AttendanceType } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, Input, Label } from '@/components/ui/primitives';
+import { Card, CardContent, Label } from '@/components/ui/primitives';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/overlays';
 import { PageHeader } from '@/components/common/page';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/common/states';
@@ -123,13 +124,19 @@ export default function RecordAttendancePage() {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="attendance-date">Date</Label>
-            <Input
+            <DatePicker
               id="attendance-date"
-              type="date"
               value={date}
-              max={new Date().toISOString().slice(0, 10)}
-              onChange={(event) => setDate(event.target.value)}
-              aria-invalid={!isValidDate}
+              max={toDateInput()}
+              clearable={false}
+              // Every service is locked to one weekday, so the other six are not
+              // selectable at all — the mismatch warning below is now only reachable
+              // through a stale URL or a service change, not through the picker.
+              disabledDates={{
+                dayOfWeek: [0, 1, 2, 3, 4, 5, 6].filter((day) => day !== service.weekday),
+              }}
+              onChange={(next) => setDate(next ?? date)}
+              invalid={!isValidDate}
             />
           </div>
         </CardContent>

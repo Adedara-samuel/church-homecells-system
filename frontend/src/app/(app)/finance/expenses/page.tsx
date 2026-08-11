@@ -10,6 +10,7 @@ import { queryKeys, useApiMutation, useApiQuery, useListQuery } from '@/hooks/us
 import type { Expense } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/primitives';
+import { DatePicker } from '@/components/ui/date-picker';
 import {
   Dialog,
   DialogContent,
@@ -359,12 +360,12 @@ function RecordExpenseDialog({
             />
           </Field>
           <Field label="Date" htmlFor="expense-date" required>
-            <Input
+            <DatePicker
               id="expense-date"
-              type="date"
               value={form.date}
               max={toDateInput()}
-              onChange={(event) => setForm((f) => ({ ...f, date: event.target.value }))}
+              clearable={false}
+              onChange={(date) => setForm((f) => ({ ...f, date: date ?? '' }))}
             />
           </Field>
           <Field label="Description" htmlFor="expense-description" required>

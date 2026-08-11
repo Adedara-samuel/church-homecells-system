@@ -4,12 +4,13 @@ import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Banknote, Download, Plus } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
-import { formatDate, formatMinor, humanise, mostRecentWeekday } from '@/lib/utils';
+import { formatDate, formatMinor, humanise, mostRecentWeekday, toDateInput } from '@/lib/utils';
 import { financeService, homecellsService, reportsService } from '@/services';
 import { queryKeys, useApiMutation, useApiQuery, useListQuery } from '@/hooks/use-api';
 import type { Offering } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/primitives';
+import { DatePicker } from '@/components/ui/date-picker';
 import {
   Dialog,
   DialogContent,
@@ -304,13 +305,15 @@ function RecordOfferingDialog({
             required
             error={!isSunday && form.date ? 'Offerings can only be recorded against a Sunday.' : undefined}
           >
-            <Input
+            <DatePicker
               id="offering-date"
-              type="date"
               value={form.date}
-              max={new Date().toISOString().slice(0, 10)}
-              onChange={(event) => setForm((f) => ({ ...f, date: event.target.value }))}
-              aria-invalid={!isSunday}
+              max={toDateInput()}
+              clearable={false}
+              // Offerings belong to a Sunday service, so weekdays are not selectable.
+              disabledDates={{ dayOfWeek: [1, 2, 3, 4, 5, 6] }}
+              onChange={(date) => setForm((f) => ({ ...f, date: date ?? '' }))}
+              invalid={!isSunday}
             />
           </Field>
 

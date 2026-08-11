@@ -9,10 +9,11 @@ import { z } from 'zod';
 import { Save } from 'lucide-react';
 import { areasService, homecellsService, membersService, zonesService } from '@/services';
 import { queryKeys, useApiMutation } from '@/hooks/use-api';
-import { humanise } from '@/lib/utils';
+import { humanise, toDateInput } from '@/lib/utils';
 import type { Member } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/primitives';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Field, FileUploadField, FormSection, SelectField } from '@/components/common/form';
 
 const phone = z
@@ -219,7 +220,22 @@ export function MemberForm({ member }: { member?: Member }) {
           />
         </Field>
         <Field label="Date of birth" htmlFor="dateOfBirth" error={errors.dateOfBirth?.message}>
-          <Input id="dateOfBirth" type="date" {...register('dateOfBirth')} />
+          <Controller
+            control={control}
+            name="dateOfBirth"
+            render={({ field }) => (
+              <DatePicker
+                id="dateOfBirth"
+                value={field.value}
+                // The schema treats '' as "not provided"; undefined would fail the
+                // union that allows an empty string.
+                onChange={(date) => field.onChange(date ?? '')}
+                onBlur={field.onBlur}
+                max={toDateInput()}
+                invalid={Boolean(errors.dateOfBirth)}
+              />
+            )}
+          />
         </Field>
         <Field label="Marital status" required>
           <Controller
@@ -237,7 +253,20 @@ export function MemberForm({ member }: { member?: Member }) {
             hint="Enables the automatic anniversary SMS"
             error={errors.weddingAnniversary?.message}
           >
-            <Input id="weddingAnniversary" type="date" {...register('weddingAnniversary')} />
+            <Controller
+              control={control}
+              name="weddingAnniversary"
+              render={({ field }) => (
+                <DatePicker
+                  id="weddingAnniversary"
+                  value={field.value}
+                  onChange={(date) => field.onChange(date ?? '')}
+                  onBlur={field.onBlur}
+                  max={toDateInput()}
+                  invalid={Boolean(errors.weddingAnniversary)}
+                />
+              )}
+            />
           </Field>
         )}
         <Field label="Profile photograph" className="sm:col-span-2">
@@ -359,7 +388,20 @@ export function MemberForm({ member }: { member?: Member }) {
         )}
 
         <Field label="Date joined church" htmlFor="dateJoinedChurch" error={errors.dateJoinedChurch?.message}>
-          <Input id="dateJoinedChurch" type="date" {...register('dateJoinedChurch')} />
+          <Controller
+            control={control}
+            name="dateJoinedChurch"
+            render={({ field }) => (
+              <DatePicker
+                id="dateJoinedChurch"
+                value={field.value}
+                onChange={(date) => field.onChange(date ?? '')}
+                onBlur={field.onBlur}
+                max={toDateInput()}
+                invalid={Boolean(errors.dateJoinedChurch)}
+              />
+            )}
+          />
         </Field>
         <Field label="Membership category" required>
           <Controller

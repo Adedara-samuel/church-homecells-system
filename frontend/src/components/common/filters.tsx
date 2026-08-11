@@ -8,6 +8,7 @@ import { queryKeys } from '@/hooks/use-api';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge, Input, Label } from '@/components/ui/primitives';
+import { DatePicker } from '@/components/ui/date-picker';
 import {
   Select,
   SelectContent,
@@ -64,21 +65,29 @@ export function DateFilter({
   label,
   value,
   onChange,
+  min,
+  max,
   className,
 }: {
   label: string;
   value: string | undefined;
   onChange: (value: string | undefined) => void;
+  min?: string;
+  max?: string;
   className?: string;
 }) {
   return (
     <div className={cn('space-y-1.5', className)}>
       <Label className="text-xs text-muted-foreground">{label}</Label>
-      <Input
-        type="date"
-        className="h-9"
-        value={value ?? ''}
-        onChange={(event) => onChange(event.target.value || undefined)}
+      <DatePicker
+        value={value}
+        onChange={onChange}
+        min={min}
+        max={max}
+        placeholder="Any date"
+        // Filters use the compact 36px control height; `first-of-type` is the
+        // trigger, so the clear button keeps its own size.
+        className="[&>button:first-of-type]:h-9"
       />
     </div>
   );

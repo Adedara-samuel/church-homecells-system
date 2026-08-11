@@ -11,6 +11,7 @@ import { queryKeys, useApiMutation, useApiQuery, useListQuery } from '@/hooks/us
 import type { Remittance } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/primitives';
+import { DatePicker } from '@/components/ui/date-picker';
 import {
   Dialog,
   DialogContent,
@@ -423,12 +424,12 @@ function RecordRemittanceDialog({
           </Field>
 
           <Field label="Remittance date" htmlFor="remittance-date" required>
-            <Input
+            <DatePicker
               id="remittance-date"
-              type="date"
               value={form.date}
               max={toDateInput()}
-              onChange={(event) => setForm((f) => ({ ...f, date: event.target.value }))}
+              clearable={false}
+              onChange={(date) => setForm((f) => ({ ...f, date: date ?? '' }))}
             />
           </Field>
 
