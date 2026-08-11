@@ -12,6 +12,8 @@ const booleanish = z
   .optional()
   .transform((v) => v === 'true' || v === '1');
 
+const normalizeOrigin = (value: string) => value.trim().replace(/\/+$/, '');
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -25,7 +27,9 @@ const envSchema = z.object({
   APP_URL: z.string().url().default('http://localhost:3000'),
   FRONTEND_URL: z.string().url().default('http://localhost:3000'),
   BACKEND_URL: z.string().url().default('http://localhost:4000'),
-  CORS_ORIGINS: z.string().default('http://localhost:3000'),
+  CORS_ORIGINS: z
+    .string()
+    .default('http://localhost:3000,https://church-homecells-system-frontend.vercel.app'),
 
   // --- Auth ---------------------------------------------------------------
   JWT_ACCESS_SECRET: z.string().min(16).default('dev-only-access-secret-change-me-please'),
@@ -105,7 +109,7 @@ export const env = {
   isTest: raw.NODE_ENV === 'test',
   isDevelopment: raw.NODE_ENV === 'development',
   corsOrigins: raw.CORS_ORIGINS.split(',')
-    .map((o) => o.trim())
+    .map((o) => normalizeOrigin(o))
     .filter(Boolean),
   uploadMaxBytes: Math.round(raw.UPLOAD_MAX_FILE_SIZE_MB * 1024 * 1024),
   cloudinaryConfigured: Boolean(

@@ -48,7 +48,8 @@ export function createApp(): Application {
     cors({
       origin(origin, callback) {
         // Same-origin and server-to-server requests carry no Origin header.
-        if (!origin || env.corsOrigins.includes(origin)) return callback(null, true);
+        const normalizedOrigin = origin ? origin.replace(/\/+$/, '') : '';
+        if (!origin || env.corsOrigins.includes(normalizedOrigin)) return callback(null, true);
         callback(new Error(`Origin ${origin} is not permitted by CORS policy`));
       },
       credentials: true,
