@@ -131,7 +131,10 @@ export async function uploadFile(
     const result = await new Promise<Record<string, unknown>>((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         {
-          folder: `${env.CLOUDINARY_FOLDER}/${folder}`,
+          // Cloudinary creates the folder on first upload, so nothing needs to
+          // exist in the account beforehand. An empty CLOUDINARY_FOLDER means "no
+          // wrapping folder" — uploads land in `members/`, `receipts/`, etc.
+          folder: env.CLOUDINARY_FOLDER ? `${env.CLOUDINARY_FOLDER}/${folder}` : folder,
           resource_type: detected.mime === 'application/pdf' ? 'raw' : 'image',
           // Never trust a client-supplied filename as a storage key.
           public_id: crypto.randomBytes(16).toString('hex'),
