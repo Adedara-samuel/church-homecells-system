@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { Building2, Plus } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/auth';
@@ -25,6 +26,7 @@ import { FilterBar, OrgFilters } from '@/components/common/filters';
 import { Field, SelectField } from '@/components/common/form';
 
 export default function AreasPage() {
+  const router = useRouter();
   const { can } = useAuth();
   const list = useListQuery();
   const [editing, setEditing] = React.useState<Area | null>(null);
@@ -144,6 +146,7 @@ export default function AreasPage() {
           columns={columns}
           rows={data?.items ?? []}
           rowKey={(area) => area._id}
+          onRowClick={(area) => router.push(`/structure/areas/${area._id}`)}
           pagination={data?.pagination}
           onPageChange={list.setPage}
           onLimitChange={list.setLimit}

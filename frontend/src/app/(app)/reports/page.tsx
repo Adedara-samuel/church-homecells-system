@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { cn, formatDate, formatMoney, formatPercent } from '@/lib/utils';
 import { reportsService } from '@/services';
 import { queryKeys, useApiQuery } from '@/hooks/use-api';
-import type { ReportColumn, ReportResult } from '@/types';
+import type { ReportColumn, ReportDefinition, ReportResult } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/primitives';
 import { PageHeader } from '@/components/common/page';
@@ -37,15 +37,18 @@ export default function ReportsPage() {
     { enabled: Boolean(selected) && ran },
   );
 
+  // Read the array out first so the memo depends on the data, not the query object.
+  const reportDefinitions = definitions.data;
+
   const grouped = React.useMemo(() => {
-    const map = new Map<string, typeof definitions.data>();
-    for (const definition of definitions.data ?? []) {
+    const map = new Map<string, ReportDefinition[]>();
+    for (const definition of reportDefinitions ?? []) {
       const list = map.get(definition.group) ?? [];
       list.push(definition);
       map.set(definition.group, list);
     }
     return [...map.entries()];
-  }, [definitions.data]);
+  }, [reportDefinitions]);
 
   const activeDefinition = definitions.data?.find((d) => d.key === selected);
 

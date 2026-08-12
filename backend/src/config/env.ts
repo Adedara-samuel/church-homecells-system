@@ -73,6 +73,14 @@ const envSchema = z.object({
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_FROM_NUMBER: z.string().optional(),
+  /**
+   * Public URL the provider calls with the final delivery outcome, e.g.
+   * `https://api.your-domain.org/api/v1/sms/webhooks/status`.
+   * Leave blank to skip delivery receipts — messages then stay at SENT.
+   */
+  SMS_STATUS_CALLBACK_URL: z.string().url().optional().or(z.literal('')),
+  /** Shared secret appended as `?token=` to the callback URL, verified on receipt. */
+  SMS_WEBHOOK_SECRET: z.string().optional(),
 
   // --- Jobs ---------------------------------------------------------------
   ENABLE_CRON_JOBS: z

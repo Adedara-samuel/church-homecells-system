@@ -32,6 +32,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/overlays';
+import { LogoMark } from '@/components/brand/logo';
 import { NAVIGATION, ROLE_LABELS } from './navigation';
 
 function useVisibleNavigation() {
@@ -60,12 +61,12 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-sidebar-border px-5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">
-          HC
-        </div>
+      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-sidebar-border px-4">
+        <LogoMark className="h-9 w-9" navy="#FFFFFF" gold="#E3BE55" />
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-white">Homecell Management</p>
+          <p className="truncate text-sm font-semibold text-white">
+            Homecell<span className="text-[#E3BE55]">MS</span>
+          </p>
           <p className="truncate text-xs text-sidebar-foreground/70">
             {user ? ROLE_LABELS[user.role] : ''}
           </p>

@@ -11,11 +11,12 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: 'Church Homecell Management System',
-    template: '%s · Homecell Management',
+    default: 'HomecellMS · Church Homecell Management System',
+    template: '%s · HomecellMS',
   },
   description:
-    'Centralised management of church homecells, members, attendance, finances, transfers and reporting.',
+    'Connecting and equipping the body — centralised management of church homecells, members, attendance, finances, transfers and reporting.',
+  applicationName: 'HomecellMS',
   robots: { index: false, follow: false },
 };
 
@@ -25,7 +26,7 @@ export const viewport: Viewport = {
   maximumScale: 5,
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#ffffff' },
-    { media: '(prefers-color-scheme: dark)', color: '#0b1020' },
+    { media: '(prefers-color-scheme: dark)', color: '#0a1526' },
   ],
 };
 

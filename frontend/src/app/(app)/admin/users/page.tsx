@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { KeyRound, Plus, ShieldBan, ShieldCheck, UserCog } from 'lucide-react';
 import { toast } from 'sonner';
@@ -35,6 +36,7 @@ const ROLES: Role[] = [
 ];
 
 export default function UsersPage() {
+  const router = useRouter();
   const { can, user: currentUser } = useAuth();
   const list = useListQuery();
   const [dialogOpen, setDialogOpen] = React.useState(false);
@@ -203,6 +205,7 @@ export default function UsersPage() {
           columns={columns}
           rows={data?.items ?? []}
           rowKey={(user) => user._id}
+          onRowClick={(user) => router.push(`/admin/users/${user._id}`)}
           pagination={data?.pagination}
           onPageChange={list.setPage}
           onLimitChange={list.setLimit}

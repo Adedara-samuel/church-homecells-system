@@ -307,7 +307,7 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <Link
-                href="/members?celebrations=birthdays"
+                href="/members/celebrations?celebrations=birthdays"
                 className="flex items-center justify-between rounded-md border p-3 transition-colors hover:bg-accent"
               >
                 <span className="flex items-center gap-2 text-sm">
@@ -317,7 +317,7 @@ export default function DashboardPage() {
                 <span className="tabular font-semibold">{dashboard.celebrations.birthdays}</span>
               </Link>
               <Link
-                href="/members?celebrations=anniversaries"
+                href="/members/celebrations?celebrations=anniversaries"
                 className="flex items-center justify-between rounded-md border p-3 transition-colors hover:bg-accent"
               >
                 <span className="flex items-center gap-2 text-sm">

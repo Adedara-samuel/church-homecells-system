@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { Home, Plus } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/auth';
@@ -25,6 +26,7 @@ import { FilterBar, OrgFilters } from '@/components/common/filters';
 import { Field, MoneyInput, SelectField } from '@/components/common/form';
 
 export default function HomecellsPage() {
+  const router = useRouter();
   const { can } = useAuth();
   const list = useListQuery();
   const [editing, setEditing] = React.useState<Homecell | null>(null);
@@ -156,6 +158,7 @@ export default function HomecellsPage() {
           columns={columns}
           rows={data?.items ?? []}
           rowKey={(homecell) => homecell._id}
+          onRowClick={(homecell) => router.push(`/structure/homecells/${homecell._id}`)}
           pagination={data?.pagination}
           onPageChange={list.setPage}
           onLimitChange={list.setLimit}

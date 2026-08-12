@@ -190,6 +190,54 @@ export async function dispatchAnniversaryMessages(
   return result;
 }
 
+/**
+ * Applies a delivery receipt from the SMS provider.
+ *
+ * Termii and Twilio both call back once a message reaches its final state, so a log
+ * entry moves from SENT to DELIVERED or FAILED in real time rather than staying at
+ * "handed to the provider". Lookup is by the provider's own message id.
+ */
+export async function applyDeliveryReceipt(input: {
+  providerReference: string;
+  status: string;
+  error?: string | null;
+  raw?: Record<string, unknown>;
+}): Promise<'UPDATED' | 'UNKNOWN' | 'IGNORED'> {
+  const log = await SmsLog.findOne({ providerReference: input.providerReference });
+  if (!log) {
+    logger.warn(
+      { providerReference: input.providerReference },
+      'SMS delivery receipt for an unknown message',
+    );
+    return 'UNKNOWN';
+  }
+
+  // Already in a final state — a repeated callback must not undo it.
+  if (log.status === SmsDeliveryStatus.DELIVERED || log.status === SmsDeliveryStatus.FAILED) {
+    return 'IGNORED';
+  }
+
+  const normalised = input.status.toLowerCase();
+  const delivered = ['delivered', 'delivrd', 'success', 'sent'].includes(normalised);
+  const failed = ['failed', 'undelivered', 'rejected', 'expired', 'undeliverable'].includes(
+    normalised,
+  );
+
+  if (!delivered && !failed) return 'IGNORED';
+
+  log.status = delivered ? SmsDeliveryStatus.DELIVERED : SmsDeliveryStatus.FAILED;
+  log.deliveredAt = delivered ? new Date() : null;
+  log.error = failed ? (input.error ?? `Provider reported "${input.status}"`) : null;
+  if (input.raw) log.providerResponse = { ...(log.providerResponse ?? {}), receipt: input.raw };
+  await log.save();
+
+  logger.info(
+    { providerReference: input.providerReference, status: log.status },
+    'SMS delivery receipt applied',
+  );
+  return 'UPDATED';
+}
+
 export interface ListSmsQuery {
   page: number;
   limit: number;

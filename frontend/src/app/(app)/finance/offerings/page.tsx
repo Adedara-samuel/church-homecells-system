@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Banknote, Download, Plus } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
@@ -32,6 +33,7 @@ import {
 import { Field, MoneyInput, SelectField } from '@/components/common/form';
 
 export default function OfferingsPage() {
+  const router = useRouter();
   const { can } = useAuth();
   const list = useListQuery();
   const [dialogOpen, setDialogOpen] = React.useState(false);
@@ -193,6 +195,7 @@ export default function OfferingsPage() {
           columns={columns}
           rows={data?.items ?? []}
           rowKey={(offering) => offering._id}
+          onRowClick={(offering) => router.push(`/finance/offerings/${offering._id}`)}
           pagination={data?.pagination}
           onPageChange={list.setPage}
           onLimitChange={list.setLimit}

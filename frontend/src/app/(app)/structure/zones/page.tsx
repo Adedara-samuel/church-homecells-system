@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { Landmark, Plus } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/auth';
@@ -25,6 +26,7 @@ import { FilterBar } from '@/components/common/filters';
 import { Field, SelectField } from '@/components/common/form';
 
 export default function ZonesPage() {
+  const router = useRouter();
   const { can } = useAuth();
   const list = useListQuery();
   const [editing, setEditing] = React.useState<Zone | null>(null);
@@ -143,6 +145,7 @@ export default function ZonesPage() {
           columns={columns}
           rows={data?.items ?? []}
           rowKey={(zone) => zone._id}
+          onRowClick={(zone) => router.push(`/structure/zones/${zone._id}`)}
           pagination={data?.pagination}
           onPageChange={list.setPage}
           onLimitChange={list.setLimit}

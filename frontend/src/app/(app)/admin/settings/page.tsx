@@ -1,7 +1,18 @@
 'use client';
 
 import * as React from 'react';
-import { CheckCircle2, CreditCard, MessageSquare, Save, Upload, XCircle } from 'lucide-react';
+import {
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  CreditCard,
+  MessageSquare,
+  Plus,
+  Save,
+  Upload,
+  X,
+  XCircle,
+} from 'lucide-react';
 import { formatMoney } from '@/lib/utils';
 import { settingsService } from '@/services';
 import { queryKeys, useApiMutation, useApiQuery } from '@/hooks/use-api';
@@ -212,36 +223,34 @@ export default function SettingsPage() {
             <CardContent className="space-y-4">
               {(
                 [
-                  ['transferApprovalChainSameArea', 'Same area'],
-                  ['transferApprovalChainCrossArea', 'Across areas'],
-                  ['transferApprovalChainCrossZone', 'Across zones'],
+                  [
+                    'transferApprovalChainSameArea',
+                    'Same area',
+                    'A member moving between two Homecells in the same Area.',
+                  ],
+                  [
+                    'transferApprovalChainCrossArea',
+                    'Across areas',
+                    'A member moving to a Homecell in a different Area of the same Zone.',
+                  ],
+                  [
+                    'transferApprovalChainCrossZone',
+                    'Across zones',
+                    'A member moving to a Homecell in another Zone entirely.',
+                  ],
                 ] as const
-              ).map(([key, label]) => (
-                <div key={key} className="rounded-lg border p-4">
-                  <p className="mb-2 text-sm font-medium">{label}</p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {(value(key, data[key]) as string[]).map((stage, index) => (
-                      <React.Fragment key={`${stage}-${index}`}>
-                        {index > 0 && <span className="text-muted-foreground">→</span>}
-                        <Badge variant="secondary">
-                          {stage
-                            .replace(/_/g, ' ')
-                            .toLowerCase()
-                            .replace(/^./, (c) => c.toUpperCase())}
-                        </Badge>
-                      </React.Fragment>
-                    ))}
-                    {(value(key, data[key]) as string[]).length === 0 && (
-                      <span className="text-sm text-muted-foreground">
-                        No approval required — transfers apply immediately
-                      </span>
-                    )}
-                  </div>
-                </div>
+              ).map(([key, label, description]) => (
+                <ApprovalChainEditor
+                  key={key}
+                  label={label}
+                  description={description}
+                  stages={value(key, data[key]) as string[]}
+                  onChange={(stages) => set(key, stages)}
+                />
               ))}
               <p className="text-xs text-muted-foreground">
-                Approval chains are edited through the API to avoid an accidental change leaving a
-                transfer unapprovable. Contact your System Administrator to adjust them.
+                Changes apply to transfers requested from now on. Requests already in flight keep
+                the chain they were created with, so an edit here can never strand one mid-approval.
               </p>
             </CardContent>
           </Card>
@@ -401,6 +410,109 @@ export default function SettingsPage() {
         </TabsContent>
       </Tabs>
     </>
+  );
+}
+
+/** Stages an administrator can place in a transfer approval chain. */
+const APPROVAL_STAGES = [
+  { value: 'AREA_COORDINATOR', label: 'Area Coordinator' },
+  { value: 'ZONAL_COORDINATOR', label: 'Zonal Coordinator' },
+  { value: 'CHURCH_ADMIN', label: 'Church Administrator' },
+];
+
+/**
+ * Builds one approval chain.
+ *
+ * Order is meaningful — a transfer moves through the stages left to right — so stages
+ * can be reordered, and each may appear only once to avoid asking the same role twice.
+ */
+function ApprovalChainEditor({
+  label,
+  description,
+  stages,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  stages: string[];
+  onChange: (stages: string[]) => void;
+}) {
+  const available = APPROVAL_STAGES.filter((stage) => !stages.includes(stage.value));
+
+  const move = (index: number, direction: -1 | 1) => {
+    const next = [...stages];
+    const target = index + direction;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    onChange(next);
+  };
+
+  return (
+    <div className="rounded-lg border p-4">
+      <p className="text-sm font-medium">{label}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+
+      {stages.length === 0 ? (
+        <p className="mt-3 rounded-md bg-warning/10 p-3 text-xs">
+          No approval required — a transfer of this kind applies immediately on request.
+        </p>
+      ) : (
+        <ol className="mt-3 space-y-2">
+          {stages.map((stage, index) => (
+            <li key={`${stage}-${index}`} className="flex items-center gap-2 rounded-md border p-2">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">
+                {index + 1}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-sm">
+                {APPROVAL_STAGES.find((s) => s.value === stage)?.label ?? stage}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={index === 0}
+                onClick={() => move(index, -1)}
+                aria-label={`Move ${stage} earlier`}
+              >
+                <ChevronUp className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={index === stages.length - 1}
+                onClick={() => move(index, 1)}
+                aria-label={`Move ${stage} later`}
+              >
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onChange(stages.filter((_, i) => i !== index))}
+                aria-label={`Remove ${stage}`}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {available.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {available.map((stage) => (
+            <Button
+              key={stage.value}
+              variant="outline"
+              size="sm"
+              onClick={() => onChange([...stages, stage.value])}
+            >
+              <Plus className="h-4 w-4" />
+              {stage.label}
+            </Button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

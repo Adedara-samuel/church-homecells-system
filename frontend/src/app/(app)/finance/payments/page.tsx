@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { CreditCard, ExternalLink, Plus, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
@@ -28,6 +29,7 @@ import { Field, MoneyInput, SelectField } from '@/components/common/form';
 const STATUSES = ['PENDING', 'PROCESSING', 'SUCCESSFUL', 'FAILED', 'CANCELLED', 'REVERSED', 'REFUNDED'];
 
 export default function PaymentsPage() {
+  const router = useRouter();
   const { can } = useAuth();
   const list = useListQuery();
   const [dialogOpen, setDialogOpen] = React.useState(false);
@@ -183,6 +185,7 @@ export default function PaymentsPage() {
           columns={columns}
           rows={data?.items ?? []}
           rowKey={(payment) => payment._id}
+          onRowClick={(payment) => router.push(`/finance/payments/${payment._id}`)}
           pagination={data?.pagination}
           onPageChange={list.setPage}
           onLimitChange={list.setLimit}

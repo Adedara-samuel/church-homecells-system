@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Check, Plus, Receipt, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
@@ -34,6 +35,7 @@ import { Field, FileUploadField, MoneyInput, SelectField } from '@/components/co
 const STATUSES = ['PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'REVERSED'];
 
 export default function ExpensesPage() {
+  const router = useRouter();
   const { can } = useAuth();
   const list = useListQuery();
   const [dialogOpen, setDialogOpen] = React.useState(false);
@@ -230,6 +232,7 @@ export default function ExpensesPage() {
           columns={columns}
           rows={data?.items ?? []}
           rowKey={(expense) => expense._id}
+          onRowClick={(expense) => router.push(`/finance/expenses/${expense._id}`)}
           pagination={data?.pagination}
           onPageChange={list.setPage}
           onLimitChange={list.setLimit}

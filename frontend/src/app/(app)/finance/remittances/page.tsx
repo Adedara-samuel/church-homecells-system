@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Check, ClipboardList, Plus, Send, ShieldCheck, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
@@ -43,6 +43,7 @@ const STATUSES = [
 ];
 
 export default function RemittancesPage() {
+  const router = useRouter();
   const { can } = useAuth();
   const searchParams = useSearchParams();
   const list = useListQuery();
@@ -260,6 +261,7 @@ export default function RemittancesPage() {
           columns={columns}
           rows={data?.items ?? []}
           rowKey={(remittance) => remittance._id}
+          onRowClick={(remittance) => router.push(`/finance/remittances/${remittance._id}`)}
           pagination={data?.pagination}
           onPageChange={list.setPage}
           onLimitChange={list.setLimit}

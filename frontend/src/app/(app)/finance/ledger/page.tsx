@@ -1,6 +1,6 @@
 'use client';
 
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { ArrowDownLeft, ArrowUpRight, Download, FileText } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { cn, formatDate, formatMinor, humanise } from '@/lib/utils';
@@ -34,6 +34,7 @@ const TYPES = [
 ];
 
 export default function LedgerPage() {
+  const router = useRouter();
   const { can } = useAuth();
   const searchParams = useSearchParams();
   const list = useListQuery(
@@ -205,6 +206,7 @@ export default function LedgerPage() {
           columns={columns}
           rows={data?.items ?? []}
           rowKey={(txn) => txn._id}
+          onRowClick={(txn) => router.push(`/finance/ledger/${txn._id}`)}
           pagination={data?.pagination}
           onPageChange={list.setPage}
           onLimitChange={list.setLimit}

@@ -1,20 +1,19 @@
 'use client';
 
-import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { Activity, CheckCircle2, PlayCircle, ShieldQuestion, TriangleAlert } from 'lucide-react';
-import { formatDate, formatMinor, humanise } from '@/lib/utils';
+import { formatDate, humanise } from '@/lib/utils';
 import { paymentsService } from '@/services';
 import { queryKeys, useApiMutation, useApiQuery } from '@/hooks/use-api';
 import type { ReconciliationRun } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/primitives';
-import { PageHeader, StatCard, StatusBadge } from '@/components/common/page';
+import { PageHeader, StatCard } from '@/components/common/page';
 import { CardSkeleton, EmptyState, ErrorState, TableSkeleton } from '@/components/common/states';
 import { DataTable, type Column } from '@/components/common/data-table';
-import { ConfirmButton } from '@/components/common/filters';
 
 export default function ReconciliationPage() {
-  const [openRunId, setOpenRunId] = React.useState<string | null>(null);
+  const router = useRouter();
 
   const summary = useApiQuery([...queryKeys.payments, 'reconciliation', 'summary'], () =>
     paymentsService.reconciliationSummary(),
@@ -27,7 +26,8 @@ export default function ReconciliationPage() {
   const runNow = useApiMutation(() => paymentsService.runReconciliation({}), {
     successMessage: 'Reconciliation complete',
     invalidates: [queryKeys.payments],
-    onSuccess: (run) => setOpenRunId(run._id),
+    // Drop the user straight into the run they just triggered.
+    onSuccess: (run) => router.push(`/finance/reconciliation/${run._id}`),
   });
 
   const columns: Column<ReconciliationRun>[] = [
@@ -75,21 +75,15 @@ export default function ReconciliationPage() {
       header: 'Unresolved',
       align: 'right',
       render: (run) => (
-        <span className={run.unresolved > 0 ? 'font-medium text-warning' : ''}>{run.unresolved}</span>
-      ),
-    },
-    {
-      key: 'actions',
-      header: '',
-      render: (run) => (
-        <Button variant="ghost" size="sm" onClick={() => setOpenRunId(run._id)}>
-          Review
-        </Button>
+        <span className={run.unresolved > 0 ? 'font-medium text-warning' : ''}>
+          {run.unresolved}
+        </span>
       ),
     },
   ];
 
   const counts = summary.data?.counts ?? {};
+  const latestRun = summary.data?.latestRun;
 
   return (
     <>
@@ -140,11 +134,34 @@ export default function ReconciliationPage() {
         </div>
       )}
 
+      {latestRun && (
+        <Card>
+          <CardContent className="flex flex-col gap-3 pt-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">Most recent run</p>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                {formatDate(latestRun.startedAt, true)} · {latestRun.matched} matched of{' '}
+                {latestRun.totalChecked} checked
+                {latestRun.unresolved > 0 ? ` · ${latestRun.unresolved} unresolved` : ''}
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push(`/finance/reconciliation/${latestRun._id}`)}
+            >
+              Review
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Reconciliation runs</CardTitle>
           <CardDescription>
-            A run happens automatically each night and can be triggered on demand.
+            A run happens automatically each night and can be triggered on demand. Select a run to
+            review its exceptions.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -157,6 +174,7 @@ export default function ReconciliationPage() {
               columns={columns}
               rows={runs.data?.items ?? []}
               rowKey={(run) => run._id}
+              onRowClick={(run) => router.push(`/finance/reconciliation/${run._id}`)}
               emptyState={
                 <EmptyState
                   icon={Activity}
@@ -174,120 +192,6 @@ export default function ReconciliationPage() {
           )}
         </CardContent>
       </Card>
-
-      {openRunId && <RunDetail runId={openRunId} onClose={() => setOpenRunId(null)} />}
     </>
-  );
-}
-
-function RunDetail({ runId, onClose }: { runId: string; onClose: () => void }) {
-  const { data: run, isLoading, isError, error, refetch } = useApiQuery(
-    [...queryKeys.payments, 'reconciliation', 'run', runId],
-    () => paymentsService.reconciliationRun(runId),
-  );
-
-  const resolve = useApiMutation(
-    ({ exceptionId, note }: { exceptionId: string; note: string }) =>
-      paymentsService.resolveException(runId, exceptionId, note),
-    {
-      successMessage: 'Exception resolved',
-      invalidates: [queryKeys.payments],
-    },
-  );
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle className="text-base">Reconciliation exceptions</CardTitle>
-            <CardDescription>
-              {run ? `${formatDate(run.startedAt, true)} · ${run.provider}` : 'Loading…'}
-            </CardDescription>
-          </div>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Close
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <TableSkeleton rows={4} columns={4} />
-        ) : isError || !run ? (
-          <ErrorState error={error} onRetry={() => void refetch()} />
-        ) : !run.exceptions || run.exceptions.length === 0 ? (
-          <EmptyState
-            icon={CheckCircle2}
-            title="No exceptions in this run"
-            description={`${run.matched} of ${run.totalChecked} payments matched the provider exactly.`}
-          />
-        ) : (
-          <ul className="space-y-3">
-            {run.exceptions.map((exception) => (
-              <li key={exception._id} className="rounded-lg border p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">{exception.reference ?? 'Unknown reference'}</span>
-                      <StatusBadge status={exception.status} />
-                      {exception.resolved && <StatusBadge status="MANUALLY_RESOLVED" />}
-                    </div>
-                    <p className="mt-1 text-sm text-muted-foreground">{exception.reason}</p>
-                    <dl className="mt-3 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-muted-foreground">Internal amount</dt>
-                        <dd className="tabular">
-                          {exception.internalAmountMinor != null
-                            ? formatMinor(exception.internalAmountMinor)
-                            : '—'}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-muted-foreground">Provider amount</dt>
-                        <dd className="tabular">
-                          {exception.providerAmountMinor != null
-                            ? formatMinor(exception.providerAmountMinor)
-                            : '—'}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-muted-foreground">Internal status</dt>
-                        <dd>{exception.internalStatus ?? '—'}</dd>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-muted-foreground">Provider status</dt>
-                        <dd>{exception.providerStatus ?? '—'}</dd>
-                      </div>
-                    </dl>
-                    {exception.resolutionNote && (
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        Resolution: {exception.resolutionNote}
-                      </p>
-                    )}
-                  </div>
-
-                  {!exception.resolved && (
-                    <ConfirmButton
-                      variant="outline"
-                      size="sm"
-                      title="Resolve this exception?"
-                      description="Records your decision against the payment and the audit trail. The ledger is not altered by this action."
-                      confirmLabel="Resolve"
-                      requireReason
-                      reasonLabel="Resolution note"
-                      onConfirm={(note) =>
-                        resolve.mutateAsync({ exceptionId: exception._id, note })
-                      }
-                    >
-                      Resolve
-                    </ConfirmButton>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
-    </Card>
   );
 }

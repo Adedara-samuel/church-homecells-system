@@ -355,6 +355,9 @@ export interface LedgerTransaction {
   reference?: string;
   providerReference?: string | null;
   supportingDocumentUrl?: string | null;
+  /** The document that produced this posting, for drill-through. */
+  sourceModel?: 'Offering' | 'Expense' | 'Remittance' | 'Payment' | null;
+  sourceId?: string | null;
   createdBy?: { firstName: string; lastName: string };
   approvedBy?: { firstName: string; lastName: string };
   reversedAt?: string | null;
@@ -418,10 +421,17 @@ export interface Remittance {
   receivingAccount: string;
   description?: string;
   receiptUrl?: string | null;
+  receiptPublicId?: string | null;
+  /** Set once a provider payout has been submitted for this remittance. */
+  payment?: string | null;
+  paymentProvider?: PaymentProviderName | null;
   providerReference?: string | null;
+  ledgerTransaction?: string | null;
   recordedBy?: { firstName: string; lastName: string };
   approvedBy?: { firstName: string; lastName: string } | null;
+  approvedAt?: string | null;
   verifiedBy?: { firstName: string; lastName: string } | null;
+  verifiedAt?: string | null;
   failureReason?: string | null;
   rejectionReason?: string | null;
   createdAt: string;
@@ -441,8 +451,11 @@ export interface Payment {
   customerName?: string;
   description?: string;
   providerReference?: string | null;
+  providerTransactionId?: string | null;
   authorizationUrl?: string | null;
   providerAmountMinor?: number | null;
+  /** The provider's own status string, kept verbatim for support queries. */
+  providerStatusRaw?: string | null;
   failureReason?: string | null;
   reconciliationStatus: ReconciliationStatus;
   reconciliationNote?: string | null;
@@ -484,6 +497,22 @@ export interface ReconciliationRun {
   error?: string | null;
 }
 
+export interface WebhookEvent {
+  _id: string;
+  provider: PaymentProviderName;
+  /** Stable key used to recognise a repeated delivery of the same event. */
+  eventKey: string;
+  eventType: string;
+  signatureValid: boolean;
+  payload: Record<string, unknown>;
+  processed: boolean;
+  processedAt?: string | null;
+  paymentReference?: string | null;
+  error?: string | null;
+  receivedAt: string;
+  deliveryCount: number;
+}
+
 export interface AppNotification {
   _id: string;
   type: string;
@@ -514,7 +543,8 @@ export interface SmsLog {
 
 export interface AuditEntry {
   _id: string;
-  user?: { firstName: string; lastName: string; email: string; role: Role } | null;
+  /** Populated by the API when the actor still exists. */
+  user?: { _id: string; firstName: string; lastName: string; email: string; role: Role } | null;
   userName?: string;
   userRole?: string;
   action: string;
@@ -526,6 +556,8 @@ export interface AuditEntry {
   newValues?: Record<string, unknown> | null;
   description: string;
   ipAddress?: string | null;
+  userAgent?: string | null;
+  requestId?: string | null;
   success: boolean;
   createdAt: string;
 }

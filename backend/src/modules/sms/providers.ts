@@ -44,6 +44,31 @@ export function countSegments(message: string): number {
   return message.length <= single ? 1 : Math.ceil(message.length / multi);
 }
 
+/**
+ * A network call that cannot hang.
+ *
+ * The celebration job sends one message per celebrant in sequence; without a timeout a
+ * single unresponsive provider request would stall the whole run.
+ */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs = 15_000,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function describeNetworkError(provider: string, error: unknown): string {
+  if ((error as Error)?.name === 'AbortError') return `${provider} did not respond in time.`;
+  return (error as Error)?.message ?? `${provider} request failed.`;
+}
+
 class TermiiProvider implements SmsProvider {
   readonly name = SmsProviderName.TERMII;
 
@@ -54,23 +79,35 @@ class TermiiProvider implements SmsProvider {
   async send(request: SendSmsRequest): Promise<SendSmsResult> {
     if (!this.isConfigured) throw new ProviderError('Termii', 'TERMII_API_KEY is not configured.');
 
-    const response = await fetch(`${env.TERMII_BASE_URL}/api/sms/send`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        to: normalisePhone(request.to).replace('+', ''),
-        from: request.senderId,
-        sms: request.message,
-        type: 'plain',
-        channel: 'generic',
-        api_key: env.TERMII_API_KEY,
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetchWithTimeout(`${env.TERMII_BASE_URL}/api/sms/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          // Termii expects the number without the leading '+'.
+          to: normalisePhone(request.to).replace('+', ''),
+          from: request.senderId,
+          sms: request.message,
+          type: 'plain',
+          channel: 'generic',
+          api_key: env.TERMII_API_KEY,
+        }),
+      });
+    } catch (error) {
+      return {
+        status: SmsDeliveryStatus.FAILED,
+        providerReference: null,
+        raw: {},
+        error: describeNetworkError('Termii', error),
+      };
+    }
 
     const json = (await response.json().catch(() => ({}))) as {
       message_id?: string;
       message?: string;
       code?: string;
+      balance?: number;
     };
 
     if (!response.ok || json.code === 'error') {
@@ -82,6 +119,7 @@ class TermiiProvider implements SmsProvider {
       };
     }
 
+    // Accepted by the provider. The final DELIVERED state arrives on the status webhook.
     return {
       status: SmsDeliveryStatus.SENT,
       providerReference: json.message_id ?? null,
@@ -104,21 +142,38 @@ class TwilioProvider implements SmsProvider {
     }
 
     const auth = Buffer.from(`${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`).toString('base64');
-    const response = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Messages.json`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Basic ${auth}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
+
+    const body = new URLSearchParams({
+      To: normalisePhone(request.to),
+      From: env.TWILIO_FROM_NUMBER!,
+      Body: request.message,
+    });
+    // Ask Twilio to call back with the final delivery outcome.
+    if (env.SMS_STATUS_CALLBACK_URL) {
+      body.set('StatusCallback', env.SMS_STATUS_CALLBACK_URL);
+    }
+
+    let response: Response;
+    try {
+      response = await fetchWithTimeout(
+        `https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Messages.json`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Basic ${auth}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body,
         },
-        body: new URLSearchParams({
-          To: normalisePhone(request.to),
-          From: env.TWILIO_FROM_NUMBER!,
-          Body: request.message,
-        }),
-      },
-    );
+      );
+    } catch (error) {
+      return {
+        status: SmsDeliveryStatus.FAILED,
+        providerReference: null,
+        raw: {},
+        error: describeNetworkError('Twilio', error),
+      };
+    }
 
     const json = (await response.json().catch(() => ({}))) as { sid?: string; message?: string };
 

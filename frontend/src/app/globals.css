@@ -4,32 +4,33 @@
 
 @layer base {
   /*
-   * A restrained, high-contrast palette. Deep indigo carries primary actions,
-   * money uses amber only where a threshold is breached, and the neutral scale
-   * does the rest — the interface should read as an operations console, not a
+   * Palette taken from the HomecellMS mark: deep navy carries primary actions and the
+   * sidebar, gold is reserved for brand moments and threshold warnings, and a neutral
+   * scale does the rest — the interface should read as an operations console, not a
    * marketing page.
    */
   :root {
     --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
+    --foreground: 219 45% 12%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 219 45% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 219 45% 12%;
 
-    --primary: 231 48% 40%;
+    /* Logo navy */
+    --primary: 219 52% 28%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 222 47% 11%;
+    --secondary: 216 20% 96%;
+    --secondary-foreground: 219 45% 14%;
 
-    --muted: 220 14% 96%;
-    --muted-foreground: 220 9% 46%;
+    --muted: 216 20% 96%;
+    --muted-foreground: 217 12% 45%;
 
-    --accent: 226 100% 97%;
-    --accent-foreground: 231 48% 34%;
+    --accent: 219 60% 96%;
+    --accent-foreground: 219 52% 24%;
 
     --destructive: 0 72% 45%;
     --destructive-foreground: 0 0% 100%;
@@ -37,71 +38,75 @@
     --success: 152 60% 32%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 33 92% 44%;
+    /* Logo gold */
+    --warning: 45 68% 42%;
     --warning-foreground: 0 0% 100%;
+    --brand-gold: 45 68% 47%;
 
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 231 48% 48%;
+    --border: 216 16% 90%;
+    --input: 216 16% 90%;
+    --ring: 219 52% 38%;
 
-    --sidebar: 224 42% 15%;
-    --sidebar-foreground: 220 14% 88%;
-    --sidebar-accent: 231 40% 24%;
-    --sidebar-border: 224 30% 24%;
+    --sidebar: 219 52% 15%;
+    --sidebar-foreground: 216 20% 88%;
+    --sidebar-accent: 219 46% 24%;
+    --sidebar-border: 219 38% 24%;
 
-    --chart-1: 231 48% 48%;
+    --chart-1: 219 52% 38%;
     --chart-2: 152 55% 40%;
-    --chart-3: 33 90% 50%;
-    --chart-4: 262 52% 55%;
-    --chart-5: 199 78% 42%;
+    --chart-3: 45 68% 47%;
+    --chart-4: 262 45% 55%;
+    --chart-5: 199 70% 42%;
 
     --radius: 0.625rem;
   }
 
   .dark {
-    --background: 224 43% 9%;
+    --background: 219 44% 8%;
     --foreground: 210 20% 96%;
 
-    --card: 224 39% 12%;
+    --card: 219 40% 11%;
     --card-foreground: 210 20% 96%;
 
-    --popover: 224 39% 12%;
+    --popover: 219 40% 11%;
     --popover-foreground: 210 20% 96%;
 
-    --primary: 231 62% 65%;
-    --primary-foreground: 224 43% 9%;
+    /* Navy lifted for contrast against a dark ground. */
+    --primary: 214 65% 62%;
+    --primary-foreground: 219 44% 8%;
 
-    --secondary: 223 32% 18%;
+    --secondary: 218 30% 17%;
     --secondary-foreground: 210 20% 96%;
 
-    --muted: 223 32% 18%;
-    --muted-foreground: 218 12% 65%;
+    --muted: 218 30% 17%;
+    --muted-foreground: 217 12% 66%;
 
-    --accent: 231 34% 22%;
-    --accent-foreground: 231 70% 82%;
+    --accent: 218 38% 21%;
+    --accent-foreground: 214 70% 82%;
 
     --destructive: 0 62% 55%;
     --destructive-foreground: 0 0% 100%;
 
     --success: 152 48% 45%;
-    --success-foreground: 224 43% 9%;
+    --success-foreground: 219 44% 8%;
 
-    --warning: 33 85% 55%;
-    --warning-foreground: 224 43% 9%;
+    --warning: 45 72% 58%;
+    --warning-foreground: 219 44% 8%;
+    --brand-gold: 45 72% 60%;
 
-    --border: 223 28% 22%;
-    --input: 223 28% 22%;
-    --ring: 231 62% 65%;
+    --border: 218 26% 21%;
+    --input: 218 26% 21%;
+    --ring: 214 65% 62%;
 
-    --sidebar: 224 45% 8%;
-    --sidebar-foreground: 218 14% 80%;
-    --sidebar-accent: 231 36% 20%;
-    --sidebar-border: 224 30% 18%;
+    --sidebar: 219 50% 7%;
+    --sidebar-foreground: 216 16% 80%;
+    --sidebar-accent: 219 40% 18%;
+    --sidebar-border: 219 32% 17%;
 
-    --chart-1: 231 62% 68%;
+    --chart-1: 214 65% 65%;
     --chart-2: 152 50% 52%;
-    --chart-3: 33 85% 60%;
-    --chart-4: 262 60% 70%;
+    --chart-3: 45 72% 60%;
+    --chart-4: 262 55% 70%;
     --chart-5: 199 70% 58%;
   }
 
@@ -122,12 +127,87 @@
   :focus-visible {
     @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
   }
+
+  /*
+   * The page never scrolls sideways.
+   *
+   * `overflow-x: clip` rather than `hidden`: `hidden` on a scroll container silently
+   * turns `position: sticky` descendants into non-sticky ones, which would break the
+   * sticky header and the attendance save bar. `clip` crops without creating a scroll
+   * container. Anything genuinely wide — tables, code blocks, charts — opts into its
+   * own scroller with `.table-scroll`.
+   */
+  html {
+    overflow-x: clip;
+  }
+
+  body {
+    overflow-x: clip;
+    /* Reserve the scrollbar gutter so content does not shift when it appears. */
+    scrollbar-gutter: stable;
+  }
+
+  /* Firefox / any browser implementing the standard properties. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+  }
+
+  /* WebKit: a slim, unobtrusive bar that only gains contrast on hover. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 9999px;
+    /* Transparent border + background-clip keeps the thumb visually inset. */
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.55);
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* Long text should wrap rather than force a horizontal scroll. */
+  p,
+  h1,
+  h2,
+  h3,
+  h4,
+  dd,
+  dt,
+  li {
+    overflow-wrap: anywhere;
+  }
 }
 
 @layer components {
-  /* Horizontal scroll is contained to the table, never the page body. */
+  /*
+   * The only sanctioned horizontal scroller. Wide content lives inside one of these,
+   * so the page body itself never scrolls sideways.
+   */
   .table-scroll {
     @apply w-full overflow-x-auto;
+    /* Momentum scrolling on touch, and snap the scrollbar to the container. */
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  /* A vertical scroller inside a fixed-height panel (activity feeds, long lists). */
+  .panel-scroll {
+    @apply overflow-y-auto;
+    overscroll-behavior: contain;
   }
 
   .skeleton {
@@ -141,6 +221,39 @@
 
   .dark .skeleton::after {
     @apply via-white/5;
+  }
+
+  /* Subtle top-to-bottom sheen used on summary/hero panels. */
+  .surface-raised {
+    @apply border bg-card shadow-sm;
+    background-image: linear-gradient(
+      to bottom,
+      hsl(var(--foreground) / 0.02),
+      transparent 120px
+    );
+  }
+
+  /* Monospace value block for references, ids and payloads. */
+  .mono-value {
+    @apply rounded-md bg-muted px-2 py-1 font-mono text-xs;
+  }
+}
+
+/*
+ * Honour the operating system's reduced-motion setting.
+ *
+ * Tailwind's `motion-safe:` prefix already gates the decorative animations, but this
+ * catches anything else — third-party components included — so the interface stays
+ * usable for anyone who finds movement uncomfortable.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

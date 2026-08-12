@@ -27,6 +27,7 @@ import type {
   ReportResult,
   SmsLog,
   SystemSettings,
+  WebhookEvent,
   Zone,
 } from '@/types';
 
@@ -222,7 +223,10 @@ export const paymentsService = {
       .then((r) => r.data),
   verify: (reference: string) => api.post<Payment>(`/payments/${reference}/verify`).then((r) => r.data),
   settle: (id: string, note: string) => api.post<Payment>(`/payments/${id}/settle`, { note }).then((r) => r.data),
-  webhookEvents: (query: Query) => api.get<unknown[]>('/payments/webhook-events', { query }).then(toPage),
+  webhookEvents: (query: Query) =>
+    api.get<WebhookEvent[]>('/payments/webhook-events', { query }).then(toPage) as Promise<
+      Page<WebhookEvent>
+    >,
 
   reconciliationSummary: () =>
     api

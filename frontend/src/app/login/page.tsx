@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
-import { AlertCircle, Church, Eye, EyeOff } from 'lucide-react';
+import { AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { LogoStacked } from '@/components/brand/logo';
 import { toast } from 'sonner';
 import { ApiError } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth';
@@ -86,16 +87,11 @@ function LoginForm() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-muted/40 p-4">
       <div className="w-full max-w-[420px]">
-        <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-            <Church className="h-7 w-7" />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">Homecell Management System</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Sign in to continue to your dashboard
-            </p>
-          </div>
+        <div className="mb-8 motion-safe:animate-rise">
+          <LogoStacked />
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            Sign in to continue to your dashboard
+          </p>
         </div>
 
         <div className="rounded-xl border bg-card p-6 shadow-sm">

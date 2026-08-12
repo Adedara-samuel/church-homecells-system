@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
+import { env } from '../../config/env';
 import { Permission } from '../../config/permissions';
 import { authenticate, currentUser, requirePermission } from '../../middleware/authenticate';
 import { dateRangeSchema, paginationSchema, phoneSchema, validate } from '../../middleware/validate';
@@ -10,6 +11,49 @@ import { smsProviderStatuses } from './providers';
 import * as service from './sms.service';
 
 export const smsRouter = Router();
+
+/**
+ * Delivery receipt callback — public by necessity, since the provider cannot present
+ * a JWT. It is protected by a shared secret in the query string and only ever moves a
+ * message between delivery states; it exposes no data and creates nothing.
+ *
+ * Both Termii and Twilio field names are accepted, so one endpoint serves either.
+ */
+smsRouter.post(
+  '/webhooks/status',
+  asyncHandler(async (req: Request, res: Response) => {
+    if (env.SMS_WEBHOOK_SECRET) {
+      const provided = (req.query as { token?: string }).token;
+      if (provided !== env.SMS_WEBHOOK_SECRET) {
+        return res.status(401).json({ success: false, error: { code: 'UNAUTHENTICATED' } });
+      }
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const providerReference =
+      (body.MessageSid as string) ??
+      (body.message_id as string) ??
+      (body.id as string) ??
+      (body.SmsSid as string);
+    const status =
+      (body.MessageStatus as string) ?? (body.status as string) ?? (body.SmsStatus as string);
+
+    if (!providerReference || !status) {
+      // Answer 200 so the provider stops retrying a payload we cannot use.
+      return res.status(200).json({ success: true, applied: false, reason: 'Incomplete payload' });
+    }
+
+    const outcome = await service.applyDeliveryReceipt({
+      providerReference,
+      status,
+      error: (body.ErrorMessage as string) ?? null,
+      raw: body,
+    });
+
+    return res.status(200).json({ success: true, outcome });
+  }),
+);
+
 smsRouter.use(authenticate);
 
 smsRouter.get(

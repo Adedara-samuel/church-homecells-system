@@ -87,11 +87,36 @@ const config: Config = {
         shimmer: {
           '100%': { transform: 'translateX(100%)' },
         },
+        /* Content easing up into place — used for staggered entrances. */
+        rise: {
+          from: { opacity: '0', transform: 'translateY(8px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        'fade-in': {
+          from: { opacity: '0' },
+          to: { opacity: '1' },
+        },
+        /* A ring expanding outward from the emblem, then fading. */
+        halo: {
+          '0%': { opacity: '0.6', transform: 'scale(1)' },
+          '70%': { opacity: '0', transform: 'scale(1.9)' },
+          '100%': { opacity: '0', transform: 'scale(1.9)' },
+        },
+        /* Very slow background wash movement. */
+        drift: {
+          '0%, 100%': { transform: 'translate(0, 0) scale(1)' },
+          '50%': { transform: 'translate(24px, -18px) scale(1.08)' },
+        },
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
         shimmer: 'shimmer 1.6s infinite',
+        rise: 'rise 0.45s cubic-bezier(0.16, 1, 0.3, 1) both',
+        'fade-in': 'fade-in 0.35s ease-out both',
+        halo: 'halo 2s cubic-bezier(0.16, 1, 0.3, 1) infinite',
+        'drift-slow': 'drift 18s ease-in-out infinite',
+        'drift-slower': 'drift 26s ease-in-out infinite reverse',
       },
     },
   },
