@@ -1,19 +1,30 @@
-import type { FilterQuery } from 'mongoose';
-import { homecellScopeFilter, assertHomecellInScope, resolveScopedFilter } from '../../middleware/scope';
+import type { FilterQuery, Types } from 'mongoose';
+import {
+  homecellScopeFilter,
+  assertAreaInScope,
+  assertHomecellInScope,
+  assertZoneInScope,
+  resolveScopedFilter,
+  zoneScopeFilter,
+} from '../../middleware/scope';
 import {
   NotificationSeverity,
   NotificationType,
   OrgStatus,
+  TransactionStatus,
+  TransactionType,
 } from '../../types/enums';
 import type { AuthenticatedUser } from '../../types/express';
 import { NotFoundError } from '../../utils/errors';
 import { idString, toObjectId } from '../../utils/ids';
 import { formatMoney, toMajor } from '../../utils/money';
+import { Area } from '../areas/area.model';
 import { Homecell, type HomecellDoc } from '../homecells/homecell.model';
 import { notify, resolveEscalationRecipients } from '../notifications/notification.service';
 import { getSettings } from '../settings/settings.service';
+import { Zone } from '../zones/zone.model';
 import { balancesByHomecell, homecellBalance, type BalanceSummary } from './ledger.service';
-import type { LedgerTransactionDoc } from './ledger.model';
+import { LedgerTransaction, type LedgerTransactionDoc } from './ledger.model';
 
 export interface PurseView {
   homecellId: string;
@@ -214,6 +225,258 @@ export async function checkThresholdAndNotify(homecellId: string): Promise<boole
   });
 
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// The purse hierarchy
+// ---------------------------------------------------------------------------
+
+/**
+ * Who holds money, and who only looks at it.
+ *
+ *   Homecell — the only unit that holds a purse. Every balance is the sum of its
+ *              posted ledger entries.
+ *   Area     — holds nothing. An Area Coordinator sees the purses of the Homecells
+ *              beneath them, and a total, but there is no "area purse" to spend.
+ *   Zone     — holds the money its Homecells have remitted. A Zonal Coordinator sees
+ *              one row per Area (the sum of that Area's Homecell purses) and drills
+ *              into an Area to see the individual Homecells.
+ */
+
+export interface AreaPurseRollup {
+  areaId: string;
+  areaName: string;
+  areaCode: string;
+  zoneId: string;
+  currency: string;
+  /** Sum of the purses of the Homecells in this Area. The Area holds none of it. */
+  homecellHoldingsMinor: number;
+  homecellCount: number;
+  aboveThresholdCount: number;
+}
+
+export interface ZonePurseRollup {
+  zoneId: string;
+  zoneName: string;
+  zoneCode: string;
+  currency: string;
+  /**
+   * The Zone's own purse: everything its Homecells have remitted, including monthly
+   * dues and levies. Reversed postings drop out because a reversal moves the original
+   * entry out of POSTED.
+   */
+  zonePurseMinor: number;
+  remittanceInflowMinor: number;
+  duesInflowMinor: number;
+  /** Money still sitting in Homecell purses beneath this Zone — not yet the Zone's. */
+  homecellHoldingsMinor: number;
+  areaCount: number;
+  homecellCount: number;
+  aboveThresholdCount: number;
+}
+
+/**
+ * What has actually reached a Zone, split by what it came from.
+ *
+ * Only POSTED entries count: `reverseTransaction` moves a reversed entry to REVERSED,
+ * so a reversed remittance leaves the Zone's total without any extra arithmetic.
+ */
+async function zoneInflows(
+  zoneIds: Types.ObjectId[],
+): Promise<Map<string, { total: number; remittances: number; dues: number }>> {
+  const rows = await LedgerTransaction.aggregate<{
+    _id: { zone: Types.ObjectId; sourceModel: string | null };
+    total: number;
+  }>([
+    {
+      $match: {
+        zone: { $in: zoneIds },
+        type: TransactionType.REMITTANCE,
+        status: TransactionStatus.POSTED,
+      },
+    },
+    { $group: { _id: { zone: '$zone', sourceModel: '$sourceModel' }, total: { $sum: '$amountMinor' } } },
+  ]);
+
+  const map = new Map<string, { total: number; remittances: number; dues: number }>();
+  for (const row of rows) {
+    const key = idString(row._id.zone);
+    const entry = map.get(key) ?? { total: 0, remittances: 0, dues: 0 };
+    entry.total += row.total;
+    if (row._id.sourceModel === 'DuesInvoice') entry.dues += row.total;
+    else entry.remittances += row.total;
+    map.set(key, entry);
+  }
+  return map;
+}
+
+/** Homecell balances grouped up to whichever level the caller asked for. */
+async function homecellRollup(homecells: HomecellDoc[]) {
+  const balances = await balancesByHomecell({
+    homecell: { $in: homecells.map((h) => h._id) },
+  });
+
+  const thresholds = new Map<string, number>();
+  for (const homecell of homecells) {
+    const { thresholdMinor } = await effectiveThreshold(homecell);
+    thresholds.set(idString(homecell._id), thresholdMinor);
+  }
+
+  return { balances, thresholds };
+}
+
+/** One row per Zone the caller can see — the church-wide and multi-zone view. */
+export async function listZonePurses(actor: AuthenticatedUser): Promise<ZonePurseRollup[]> {
+  const settings = await getSettings();
+
+  const zones = await Zone.find({ ...zoneScopeFilter(actor), status: OrgStatus.ACTIVE })
+    .select('name code')
+    .sort({ name: 1 })
+    .lean();
+  if (zones.length === 0) return [];
+
+  const zoneIds = zones.map((zone) => zone._id);
+  const [homecells, areaCounts, inflows] = await Promise.all([
+    Homecell.find({ zone: { $in: zoneIds }, status: OrgStatus.ACTIVE })
+      .select('name code area zone maxPurseThresholdOverride')
+      .lean(),
+    Area.aggregate<{ _id: Types.ObjectId; count: number }>([
+      { $match: { zone: { $in: zoneIds }, status: OrgStatus.ACTIVE } },
+      { $group: { _id: '$zone', count: { $sum: 1 } } },
+    ]),
+    zoneInflows(zoneIds),
+  ]);
+
+  const { balances, thresholds } = await homecellRollup(homecells as HomecellDoc[]);
+  const areaCountByZone = new Map(areaCounts.map((row) => [idString(row._id), row.count]));
+
+  return zones.map((zone) => {
+    const own = homecells.filter((homecell) => idString(homecell.zone) === idString(zone._id));
+    const inflow = inflows.get(idString(zone._id)) ?? { total: 0, remittances: 0, dues: 0 };
+
+    let holdings = 0;
+    let aboveThreshold = 0;
+    for (const homecell of own) {
+      const key = idString(homecell._id);
+      const balance = balances.get(key) ?? 0;
+      const threshold = thresholds.get(key) ?? 0;
+      holdings += balance;
+      if (threshold > 0 && balance >= threshold) aboveThreshold += 1;
+    }
+
+    return {
+      zoneId: idString(zone._id),
+      zoneName: zone.name,
+      zoneCode: zone.code,
+      currency: settings.currency,
+      zonePurseMinor: inflow.total,
+      remittanceInflowMinor: inflow.remittances,
+      duesInflowMinor: inflow.dues,
+      homecellHoldingsMinor: holdings,
+      areaCount: areaCountByZone.get(idString(zone._id)) ?? 0,
+      homecellCount: own.length,
+      aboveThresholdCount: aboveThreshold,
+    };
+  });
+}
+
+/**
+ * One Zone: its own purse, plus a row per Area showing what the Homecells in that
+ * Area are still holding. This is the Zonal Coordinator's landing view — Areas first,
+ * Homecells only after choosing one.
+ */
+export async function getZonePurse(
+  actor: AuthenticatedUser,
+  zoneId: string,
+): Promise<{ zone: ZonePurseRollup; areas: AreaPurseRollup[] }> {
+  assertZoneInScope(actor, zoneId);
+
+  const settings = await getSettings();
+  const zone = await Zone.findById(zoneId).select('name code').lean();
+  if (!zone) throw new NotFoundError('Zone');
+
+  const [areas, homecells, inflows] = await Promise.all([
+    Area.find({ zone: zone._id, status: OrgStatus.ACTIVE }).select('name code zone').sort({ name: 1 }).lean(),
+    Homecell.find({ zone: zone._id, status: OrgStatus.ACTIVE })
+      .select('name code area zone maxPurseThresholdOverride')
+      .lean(),
+    zoneInflows([zone._id]),
+  ]);
+
+  const { balances, thresholds } = await homecellRollup(homecells as HomecellDoc[]);
+  const inflow = inflows.get(idString(zone._id)) ?? { total: 0, remittances: 0, dues: 0 };
+
+  const areaRows: AreaPurseRollup[] = areas.map((area) => {
+    const own = homecells.filter((homecell) => idString(homecell.area) === idString(area._id));
+    let holdings = 0;
+    let aboveThreshold = 0;
+    for (const homecell of own) {
+      const key = idString(homecell._id);
+      const balance = balances.get(key) ?? 0;
+      const threshold = thresholds.get(key) ?? 0;
+      holdings += balance;
+      if (threshold > 0 && balance >= threshold) aboveThreshold += 1;
+    }
+    return {
+      areaId: idString(area._id),
+      areaName: area.name,
+      areaCode: area.code,
+      zoneId: idString(zone._id),
+      currency: settings.currency,
+      homecellHoldingsMinor: holdings,
+      homecellCount: own.length,
+      aboveThresholdCount: aboveThreshold,
+    };
+  });
+
+  return {
+    zone: {
+      zoneId: idString(zone._id),
+      zoneName: zone.name,
+      zoneCode: zone.code,
+      currency: settings.currency,
+      zonePurseMinor: inflow.total,
+      remittanceInflowMinor: inflow.remittances,
+      duesInflowMinor: inflow.dues,
+      homecellHoldingsMinor: areaRows.reduce((sum, area) => sum + area.homecellHoldingsMinor, 0),
+      areaCount: areaRows.length,
+      homecellCount: homecells.length,
+      aboveThresholdCount: areaRows.reduce((sum, area) => sum + area.aboveThresholdCount, 0),
+    },
+    areas: areaRows,
+  };
+}
+
+/**
+ * One Area: every Homecell purse beneath it.
+ *
+ * The Area itself holds nothing — the total returned is the sum of what its Homecells
+ * hold, offered for display only. There is no balance here to spend or remit.
+ */
+export async function getAreaPurses(
+  actor: AuthenticatedUser,
+  areaId: string,
+): Promise<{ area: AreaPurseRollup; purses: PurseView[] }> {
+  await assertAreaInScope(actor, areaId);
+
+  const area = await Area.findById(areaId).select('name code zone').lean();
+  if (!area) throw new NotFoundError('Area');
+
+  const purses = await listPurses(actor, { areaId });
+
+  return {
+    area: {
+      areaId: idString(area._id),
+      areaName: area.name,
+      areaCode: area.code,
+      zoneId: idString(area.zone),
+      currency: purses[0]?.currency ?? (await getSettings()).currency,
+      homecellHoldingsMinor: purses.reduce((sum, purse) => sum + purse.balance.availableMinor, 0),
+      homecellCount: purses.length,
+      aboveThresholdCount: purses.filter((purse) => purse.requiresRemittance).length,
+    },
+    purses,
+  };
 }
 
 /** Ledger view for one Homecell — the drill-down behind a summary figure. */

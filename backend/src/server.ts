@@ -26,6 +26,21 @@ async function bootstrap(): Promise<void> {
     'System configuration loaded',
   );
 
+  /**
+   * The active provider lives in the database, so a correct `PAYMENT_PROVIDER` cannot
+   * fix a deployment whose settings document still says MOCK — it would keep issuing
+   * mock checkout links. Payments are refused in that state (see `getActiveProvider`),
+   * but it is called out here so the cause is visible in the boot logs rather than
+   * discovered by a coordinator at checkout.
+   */
+  if (settings.activePaymentProvider === 'MOCK' && env.isProduction) {
+    logger.error(
+      { envProvider: env.PAYMENT_PROVIDER },
+      'Active payment provider is MOCK in production — online payments are DISABLED. ' +
+        'Fix with: npm run set-provider -- PAYSTACK',
+    );
+  }
+
   const app = createApp();
   server = app.listen(env.PORT, () => {
     logger.info(

@@ -1,26 +1,144 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertTriangle, Banknote, Receipt, Send, Wallet } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { cn, formatMinor, formatMoney, formatPercent } from '@/lib/utils';
 import { financeService } from '@/services';
 import { queryKeys, useApiQuery } from '@/hooks/use-api';
-import type { Purse } from '@/types';
+import type { AreaPurseRollup, Purse } from '@/types';
+import {
+  AreaRollupList,
+  ZoneInflowBreakdown,
+  ZoneRollupList,
+  ZoneSummary,
+} from './zone-view';
 import { Button } from '@/components/ui/button';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/primitives';
 import { PageHeader, StatCard } from '@/components/common/page';
 import { CardSkeleton, EmptyState, ErrorState } from '@/components/common/states';
 
+/**
+ * The purse hierarchy, one page with three levels.
+ *
+ * Which level opens depends on who is looking, because that is the level at which
+ * their job is done:
+ *   church-wide → every zone, drilling into one zone
+ *   zonal       → their zone's purse and a row per area
+ *   area        → the homecell purses beneath them (an area holds no purse itself)
+ *   homecell    → their own purse
+ *
+ * `?zoneId=` / `?areaId=` drive the drill-down, so a level is linkable and the browser
+ * back button steps back up the tree.
+ */
 export default function PursesPage() {
-  const { can } = useAuth();
-  const { data, isLoading, isError, error, refetch } = useApiQuery(
-    [...queryKeys.finance, 'purses'],
-    () => financeService.purses(),
-    { refetchInterval: 120_000 },
+  const { can, user } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const areaId = searchParams.get('areaId') ?? (user?.homecell ? null : user?.area) ?? null;
+  const zoneId = searchParams.get('zoneId') ?? (areaId ? null : user?.zone) ?? null;
+
+  // Church-wide roles land on the zone list; everyone else on their own level.
+  const level: 'zones' | 'zone' | 'area' = areaId ? 'area' : zoneId ? 'zone' : 'zones';
+
+  const zones = useApiQuery(
+    [...queryKeys.finance, 'purses', 'zones'],
+    () => financeService.zonePurses(),
+    { enabled: level === 'zones', refetchInterval: 120_000 },
   );
 
-  const purses = data ?? [];
+  const zone = useApiQuery(
+    [...queryKeys.finance, 'purses', 'zone', zoneId ?? 'none'],
+    () => financeService.zonePurse(zoneId!),
+    { enabled: level === 'zone', refetchInterval: 120_000 },
+  );
+
+  const area = useApiQuery(
+    [...queryKeys.finance, 'purses', 'area', areaId ?? 'none'],
+    () => financeService.areaPurses(areaId!),
+    { enabled: level === 'area', refetchInterval: 120_000 },
+  );
+
+  const active = level === 'zones' ? zones : level === 'zone' ? zone : area;
+
+  if (level !== 'area') {
+    return (
+      <>
+        <PageHeader
+          title={level === 'zones' ? 'Purses by zone' : zone.data?.zone.zoneName ?? 'Zone purse'}
+          description={
+            level === 'zones'
+              ? 'Only homecells hold a purse. A zone accumulates what its homecells remit.'
+              : 'The zone purse is what has been remitted in. Areas hold nothing — open one to see its homecell purses.'
+          }
+          breadcrumbs={
+            level === 'zones'
+              ? [{ label: 'Finance' }, { label: 'Purses' }]
+              : [
+                  { label: 'Finance' },
+                  { label: 'Purses', href: '/finance/purses' },
+                  { label: zone.data?.zone.zoneName ?? 'Zone' },
+                ]
+          }
+        />
+
+        {active.isLoading ? (
+          <CardSkeleton count={3} />
+        ) : active.isError ? (
+          <ErrorState error={active.error} onRetry={() => void active.refetch()} />
+        ) : level === 'zones' ? (
+          (zones.data ?? []).length === 0 ? (
+            <EmptyState
+              icon={Wallet}
+              title="No zones yet"
+              description="Purses appear here once zones, areas and homecells are in place."
+            />
+          ) : (
+            <ZoneRollupList zones={zones.data!} />
+          )
+        ) : (
+          <div className="space-y-6">
+            <ZoneSummary zone={zone.data!.zone} />
+            {zone.data!.zone.zonePurseMinor > 0 && (
+              <ZoneInflowBreakdown zone={zone.data!.zone} />
+            )}
+            <div>
+              <h2 className="mb-3 text-sm font-semibold text-muted-foreground">
+                Areas — open one to see its homecell purses
+              </h2>
+              <AreaRollupList areas={zone.data!.areas} />
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <AreaPurses
+      areaId={areaId!}
+      canRemit={can('remittances.create')}
+      query={area}
+      onBack={zoneId || user?.zone ? () => router.push('/finance/purses') : undefined}
+    />
+  );
+}
+
+/** The only level that shows real purses: every homecell beneath one area. */
+function AreaPurses({
+  canRemit,
+  query,
+  onBack,
+}: {
+  areaId: string;
+  canRemit: boolean;
+  query: ReturnType<typeof useApiQuery<{ area: AreaPurseRollup; purses: Purse[] }>>;
+  onBack?: () => void;
+}) {
+  const { data, isLoading, isError, error, refetch } = query;
+  const purses = data?.purses ?? [];
   const currency = purses[0]?.currency ?? 'NGN';
 
   const totals = purses.reduce(
@@ -35,9 +153,17 @@ export default function PursesPage() {
   return (
     <>
       <PageHeader
-        title="Homecell purses"
-        description="Every balance below is the sum of posted ledger transactions — it is never edited directly."
-        breadcrumbs={[{ label: 'Finance' }, { label: 'Homecell purses' }]}
+        title={data ? `${data.area.areaName} — homecell purses` : 'Homecell purses'}
+        description="Every balance below is the sum of posted ledger transactions — it is never edited directly. The area itself holds no purse; the total is what its homecells hold."
+        breadcrumbs={
+          onBack
+            ? [
+                { label: 'Finance' },
+                { label: 'Purses', href: '/finance/purses' },
+                { label: data?.area.areaName ?? 'Area' },
+              ]
+            : [{ label: 'Finance' }, { label: 'Homecell purses' }]
+        }
       />
 
       {isLoading ? (
@@ -48,7 +174,7 @@ export default function PursesPage() {
         <>
           <div className="grid gap-4 sm:grid-cols-3">
             <StatCard
-              label="Total available"
+              label="Held by these homecells"
               value={formatMinor(totals.available, currency)}
               hint={`Across ${purses.length} homecell${purses.length === 1 ? '' : 's'}`}
               icon={Wallet}
@@ -81,7 +207,7 @@ export default function PursesPage() {
           ) : (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {purses.map((purse) => (
-                <PurseCard key={purse.homecellId} purse={purse} canRemit={can('remittances.create')} />
+                <PurseCard key={purse.homecellId} purse={purse} canRemit={canRemit} />
               ))}
             </div>
           )}

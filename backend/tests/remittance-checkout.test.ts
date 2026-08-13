@@ -3,6 +3,7 @@ import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { env } from '../src/config/env';
 import { homecellBalance, postTransaction } from '../src/modules/finance/ledger.service';
+import { Payment } from '../src/modules/payments/payment.model';
 import { Remittance } from '../src/modules/remittances/remittance.model';
 import { RemittanceStatus, TransactionType } from '../src/types/enums';
 import { dayjs } from '../src/utils/dates';
@@ -179,7 +180,6 @@ describe('Remittance minimum and online checkout', () => {
       const payment = remittance!.payment;
       expect(payment).toBeTruthy();
 
-      const { Payment } = await import('../src/modules/payments/payment.model');
       const paymentDoc = await Payment.findById(payment).lean();
 
       const first = await deliverWebhook({

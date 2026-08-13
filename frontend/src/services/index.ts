@@ -5,6 +5,7 @@ import type {
   AppNotification,
   AppUser,
   Area,
+  AreaPurseRollup,
   AttendanceRecord,
   AttendanceRegister,
   AttendanceSummary,
@@ -34,6 +35,7 @@ import type {
   SystemSettings,
   WebhookEvent,
   Zone,
+  ZonePurseRollup,
 } from '@/types';
 
 export type Query = Record<string, string | number | boolean | undefined | null>;
@@ -160,6 +162,18 @@ export const attendanceService = {
 export const financeService = {
   purses: (query: Query = {}) => api.get<Purse[]>('/finance/purses', { query }).then((r) => r.data),
   purse: (homecellId: string) => api.get<Purse>(`/finance/purses/${homecellId}`).then((r) => r.data),
+  /** One row per zone in scope — the church-wide view. */
+  zonePurses: () => api.get<ZonePurseRollup[]>('/finance/purses/zones').then((r) => r.data),
+  /** A zone's own purse plus a row per area beneath it. */
+  zonePurse: (zoneId: string) =>
+    api
+      .get<{ zone: ZonePurseRollup; areas: AreaPurseRollup[] }>(`/finance/purses/zones/${zoneId}`)
+      .then((r) => r.data),
+  /** Every homecell purse under one area. */
+  areaPurses: (areaId: string) =>
+    api
+      .get<{ area: AreaPurseRollup; purses: Purse[] }>(`/finance/purses/areas/${areaId}`)
+      .then((r) => r.data),
 
   ledger: (query: Query) => api.get<LedgerTransaction[]>('/finance/ledger', { query }).then(toPage),
   transaction: (id: string) => api.get<LedgerTransaction>(`/finance/ledger/${id}`).then((r) => r.data),

@@ -13,6 +13,7 @@
     "dev:web": "npm --workspace frontend run dev",
     "build": "npm --workspace backend run build && npm --workspace frontend run build",
     "start": "concurrently -n api,web -c blue,magenta \"npm --workspace backend run start\" \"npm --workspace frontend run start\"",
+    "set-provider": "npm --workspace backend run set-provider --",
     "seed": "npm --workspace backend run seed",
     "seed:fresh": "npm --workspace backend run seed:fresh",
     "lint": "npm --workspace backend run lint && npm --workspace frontend run lint",

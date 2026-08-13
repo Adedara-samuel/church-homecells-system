@@ -8,6 +8,7 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
+    "set-provider": "tsx src/scripts/set-payment-provider.ts",
     "seed": "tsx src/seed/index.ts",
     "seed:fresh": "tsx src/seed/index.ts --fresh",
     "lint": "eslint \"src/**/*.ts\"",

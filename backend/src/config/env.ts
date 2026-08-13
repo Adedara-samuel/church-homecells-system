@@ -141,6 +141,25 @@ export function assertProductionSafety(): void {
   if (env.JWT_REFRESH_SECRET.startsWith('dev-only')) problems.push('JWT_REFRESH_SECRET');
   if (env.JWT_ACCESS_SECRET === env.JWT_REFRESH_SECRET)
     problems.push('JWT_ACCESS_SECRET must differ from JWT_REFRESH_SECRET');
+
+  /**
+   * A local URL in production is not cosmetic: `FRONTEND_URL` becomes the payment
+   * provider's `callback_url`, so a coordinator finishing a real payment would be
+   * redirected to a machine that is not theirs. Caught at boot rather than discovered
+   * mid-checkout.
+   */
+  const isLocal = (url: string) => /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)/i.test(url);
+  if (isLocal(env.FRONTEND_URL)) problems.push('FRONTEND_URL still points at localhost');
+  if (isLocal(env.BACKEND_URL)) problems.push('BACKEND_URL still points at localhost');
+  if (isLocal(env.APP_URL)) problems.push('APP_URL still points at localhost');
+  if (env.corsOrigins.length === 0) problems.push('CORS_ORIGINS is empty');
+
+  // The mock provider fabricates successful payments — it must never be the intended
+  // choice in production, even before the database setting is consulted.
+  if (env.PAYMENT_PROVIDER === 'MOCK') {
+    problems.push('PAYMENT_PROVIDER is MOCK — set PAYSTACK or FLUTTERWAVE');
+  }
+
   if (problems.length) {
     throw new Error(
       `Refusing to start in production with insecure configuration: ${problems.join(', ')}`,

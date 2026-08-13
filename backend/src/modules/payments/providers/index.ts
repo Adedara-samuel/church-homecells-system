@@ -1,5 +1,7 @@
+import { env } from '../../../config/env';
 import { logger } from '../../../config/logger';
 import { PaymentProviderName } from '../../../types/enums';
+import { ConflictError } from '../../../utils/errors';
 import { getSettings } from '../../settings/settings.service';
 import { FlutterwaveProvider } from './flutterwave.provider';
 import { MockPaymentProvider } from './mock.provider';
@@ -27,6 +29,20 @@ export async function getActiveProvider(): Promise<PaymentProvider> {
   const selected = getProvider(settings.activePaymentProvider);
 
   if (!selected.isConfigured) {
+    // In production there is no safe fallback: the mock provider would report the
+    // payment as successful and the ledger would record money that never moved.
+    // Refusing here surfaces a configuration problem instead of inventing funds.
+    if (env.isProduction) {
+      logger.error(
+        { provider: selected.name },
+        'Active payment provider has no credentials configured — refusing to process payments',
+      );
+      throw new ConflictError(
+        `Online payments are unavailable: the ${selected.name} provider has no credentials configured. ` +
+          'Set the provider keys and select it under Settings → Integrations.',
+      );
+    }
+
     logger.warn(
       { provider: selected.name },
       'Selected payment provider has no credentials configured — falling back to the mock provider',

@@ -33,7 +33,14 @@ import { assertHomecellInScope } from '../../middleware/scope';
 import { getSettings } from '../settings/settings.service';
 import { LedgerTransaction, type LedgerTransactionDoc } from './ledger.model';
 import { postTransaction, reverseTransaction } from './ledger.service';
-import { checkThresholdAndNotify, getPurse, listPurses } from './purse.service';
+import {
+  checkThresholdAndNotify,
+  getAreaPurses,
+  getPurse,
+  getZonePurse,
+  listPurses,
+  listZonePurses,
+} from './purse.service';
 import * as offerings from './offering.service';
 import * as expenses from './expense.service';
 import { OfferingChannel } from './offering.model';
@@ -60,6 +67,38 @@ financeRouter.get(
   }),
   asyncHandler(async (req: Request, res: Response) =>
     ok(res, await listPurses(currentUser(req), req.query as never)),
+  ),
+);
+
+/**
+ * The purse hierarchy. Routes are declared before `/purses/:homecellId` so the literal
+ * segments are not captured as a Homecell id.
+ */
+financeRouter.get(
+  '/purses/zones',
+  requirePermission(Permission.FINANCE_VIEW),
+  asyncHandler(async (req: Request, res: Response) =>
+    ok(res, await listZonePurses(currentUser(req))),
+  ),
+);
+
+/** A Zone's own purse plus a row per Area. */
+financeRouter.get(
+  '/purses/zones/:zoneId',
+  requirePermission(Permission.FINANCE_VIEW),
+  validate({ params: z.object({ zoneId: objectIdSchema }) }),
+  asyncHandler(async (req: Request, res: Response) =>
+    ok(res, await getZonePurse(currentUser(req), req.params.zoneId)),
+  ),
+);
+
+/** Every Homecell purse under one Area. Areas hold no funds of their own. */
+financeRouter.get(
+  '/purses/areas/:areaId',
+  requirePermission(Permission.FINANCE_VIEW),
+  validate({ params: z.object({ areaId: objectIdSchema }) }),
+  asyncHandler(async (req: Request, res: Response) =>
+    ok(res, await getAreaPurses(currentUser(req), req.params.areaId)),
   ),
 );
 

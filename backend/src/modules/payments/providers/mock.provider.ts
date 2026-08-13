@@ -28,7 +28,12 @@ import type {
 export class MockPaymentProvider implements PaymentProvider {
   readonly name = PaymentProviderName.MOCK;
   readonly supportsPayouts = true;
-  readonly isConfigured = true;
+  /**
+   * Never available in production. This provider fabricates successful payments, and
+   * a settled payment posts real money to the ledger — so outside development it must
+   * be impossible to select, not merely discouraged.
+   */
+  readonly isConfigured = !env.isProduction;
 
   /** Shared secret for the mock webhook signature — deterministic in development. */
   private readonly secret = env.JWT_ACCESS_SECRET;

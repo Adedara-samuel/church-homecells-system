@@ -1,8 +1,12 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "CommonJS",
-    "moduleResolution": "Node",
+    // Node16 is the supported, non-deprecated setting for a Node CommonJS package
+    // (the old "Node"/"node10" spelling is deprecated and stops working in TS 7).
+    // With no "type": "module" in package.json every file stays CommonJS, so the
+    // emitted output and all existing imports are unchanged.
+    "module": "Node16",
+    "moduleResolution": "Node16",
     "lib": [
       "ES2022"
     ],
@@ -18,8 +22,7 @@
     "noImplicitOverride": true,
     "types": [
       "node"
-    ],
-    "ignoreDeprecations": "6.0"
+    ]
   },
   "include": [
     "src/**/*.ts",

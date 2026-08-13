@@ -341,6 +341,38 @@ export interface Purse {
   suggestedRemittanceMinor: number;
 }
 
+/**
+ * Rollups for the purse hierarchy.
+ *
+ * Only a homecell holds a purse. An area holds nothing — `homecellHoldingsMinor` is
+ * the sum of the purses beneath it, for display. A zone holds what its homecells have
+ * remitted, which is `zonePurseMinor`.
+ */
+export interface AreaPurseRollup {
+  areaId: string;
+  areaName: string;
+  areaCode: string;
+  zoneId: string;
+  currency: string;
+  homecellHoldingsMinor: number;
+  homecellCount: number;
+  aboveThresholdCount: number;
+}
+
+export interface ZonePurseRollup {
+  zoneId: string;
+  zoneName: string;
+  zoneCode: string;
+  currency: string;
+  zonePurseMinor: number;
+  remittanceInflowMinor: number;
+  duesInflowMinor: number;
+  homecellHoldingsMinor: number;
+  areaCount: number;
+  homecellCount: number;
+  aboveThresholdCount: number;
+}
+
 export interface LedgerTransaction {
   _id: string;
   transactionRef: string;
