@@ -26,20 +26,37 @@ const duration = z
   .string()
   .regex(/^\d+[smhd]$/, 'must be a number followed by s, m, h or d — for example 15m or 2d');
 
+/** Configuration problems worth shouting about that do not justify refusing to boot. */
+const configWarnings: string[] = [];
+
 /**
  * A webhook *secret* is a signing key, never an address.
  *
  * Putting the webhook URL here is an easy mistake — the dashboard field next to it
- * asks for exactly that — and the damage is silent: the HMAC would be computed with
- * the URL as its key, so every genuine provider signature fails verification and no
- * payment ever settles. Rejected at boot rather than discovered in a webhook log.
+ * asks for exactly that — and the damage would otherwise be silent: the HMAC would be
+ * computed with the URL as its key, so every genuine provider signature fails and no
+ * payment ever settles.
+ *
+ * A URL is definitively not a signing secret, and there *is* a correct fallback — the
+ * provider secret key, which is what the provider signs with. So the value is discarded
+ * and the fallback used, loudly. Refusing to boot would take attendance, members and
+ * every other module offline over a payments setting that can be safely ignored.
  */
 const webhookSecret = z
   .string()
   .optional()
-  .refine((value) => !value || !/^https?:\/\//i.test(value.trim()), {
-    message:
-      'must be the signing secret, not the webhook URL — leave it blank to sign with the provider secret key',
+  .transform((value, ctx) => {
+    const trimmed = value?.trim();
+    if (!trimmed) return undefined;
+    if (/^https?:\/\//i.test(trimmed)) {
+      configWarnings.push(
+        `${String(ctx.path[0] ?? 'A webhook secret')} looks like a URL, not a signing secret. ` +
+          'It has been ignored — signatures are verified with the provider secret key, ' +
+          'which is what the provider signs with. Clear the variable to silence this.',
+      );
+      return undefined;
+    }
+    return trimmed;
   });
 
 const envSchema = z.object({
@@ -144,6 +161,13 @@ if (!parsed.success) {
 }
 
 const raw = parsed.data;
+
+// Printed with `console.error` rather than the logger: this module is imported by the
+// logger itself, so it cannot depend on it.
+for (const warning of configWarnings) {
+  // eslint-disable-next-line no-console
+  console.error(`Configuration warning: ${warning}`);
+}
 
 export const env = {
   ...raw,
