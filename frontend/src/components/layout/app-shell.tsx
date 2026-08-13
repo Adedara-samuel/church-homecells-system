@@ -57,17 +57,30 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-sidebar-border px-4">
-        <LogoMark className="h-9 w-9" navy="#FFFFFF" gold="#E3BE55" />
+      {/* The mark sits in its own chip so the wordmark aligns with the nav's icon
+          column below it — the whole panel shares one left edge. */}
+      <div className="flex h-16 shrink-0 items-center gap-2.5 px-4">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06]">
+          <LogoMark className="h-6 w-6" navy="#FFFFFF" gold="#E3BE55" />
+        </span>
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-white">
+          <p className="truncate text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">
             Homecell<span className="text-[#E3BE55]">MS</span>
           </p>
-          <p className="truncate text-xs text-sidebar-foreground/70">
+          <p className="truncate text-[11px] leading-tight text-sidebar-foreground/60">
             {user ? ROLE_LABELS[user.role] : ''}
           </p>
         </div>
       </div>
+
+      <div
+        className="mx-4 h-px shrink-0"
+        style={{
+          background:
+            'linear-gradient(to right, transparent, hsl(var(--sidebar-border)), transparent)',
+        }}
+        aria-hidden
+      />
 
       <SidebarNav sections={sections} pathname={pathname} onNavigate={onNavigate} />
     </div>

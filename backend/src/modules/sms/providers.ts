@@ -202,17 +202,27 @@ class TwilioProvider implements SmsProvider {
  */
 class MockSmsProvider implements SmsProvider {
   readonly name = SmsProviderName.MOCK;
-  readonly isConfigured = true;
+  /**
+   * Never available in production. This provider sends nothing, so a deployment that
+   * quietly fell back to it would show a log full of successful greetings that no
+   * member ever received.
+   */
+  readonly isConfigured = !env.isProduction;
 
   async send(request: SendSmsRequest): Promise<SendSmsResult> {
     logger.info(
       { to: normalisePhone(request.to), senderId: request.senderId, message: request.message },
-      'Mock SMS dispatched',
+      'Mock SMS — nothing was actually sent',
     );
     return {
-      status: SmsDeliveryStatus.DELIVERED,
+      /**
+       * SENT, not DELIVERED. Nothing reached a handset, and reporting delivery is how
+       * a mock run becomes indistinguishable from a real one in the SMS log — which is
+       * exactly how "it says delivered but I got no message" happens.
+       */
+      status: SmsDeliveryStatus.SENT,
       providerReference: `MOCK-SMS-${Date.now().toString(36).toUpperCase()}`,
-      raw: { mock: true },
+      raw: { mock: true, delivered: false },
       error: null,
     };
   }
@@ -227,6 +237,19 @@ const registry: Record<SmsProviderName, SmsProvider> = {
 export function getSmsProvider(name: SmsProviderName): SmsProvider {
   const provider = registry[name] ?? registry[SmsProviderName.MOCK];
   if (!provider.isConfigured) {
+    // In production there is no safe fallback: the mock sends nothing, so falling back
+    // would mean every member is silently not contacted while the log looks healthy.
+    if (env.isProduction) {
+      logger.error(
+        { provider: provider.name },
+        'Active SMS provider has no credentials configured — refusing to send',
+      );
+      throw new ProviderError(
+        provider.name,
+        `${provider.name} has no credentials configured. Set its keys and select it under Settings → Integrations.`,
+      );
+    }
+
     logger.warn(
       { provider: provider.name },
       'Selected SMS provider has no credentials - falling back to the mock provider',

@@ -1,4 +1,5 @@
 import type { FilterQuery } from 'mongoose';
+import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { resolveScopedFilter } from '../../middleware/scope';
 import {
@@ -10,6 +11,13 @@ import type { AuthenticatedUser } from '../../types/express';
 import { dateRange, dayjs } from '../../utils/dates';
 import { idString } from '../../utils/ids';
 import { paginate } from '../../utils/query';
+import { sendMail } from '../mail/mail.service';
+import {
+  celebrationHtml,
+  celebrationSubject,
+  celebrationText,
+  type CelebrationKind,
+} from '../mail/templates/celebration';
 import { Member } from '../members/member.model';
 import { getSettings } from '../settings/settings.service';
 import { countSegments, getSmsProvider } from './providers';
@@ -99,6 +107,61 @@ export async function sendSms(options: SendOptions): Promise<'SENT' | 'FAILED' |
 }
 
 /**
+ * Sends one celebration greeting.
+ *
+ * Email is the primary channel — it carries the designed message rather than 160
+ * characters of plain text — and SMS is the fallback for members with no email
+ * address, which in a church membership list is a large share of them. Nobody is
+ * skipped for lacking one or the other.
+ *
+ * Both channels dedupe on the same occasion key, so a member with both an email and a
+ * phone is greeted once, by email.
+ */
+async function sendCelebration(options: {
+  member: { id: string; name: string; email?: string | null; phone?: string | null };
+  kind: CelebrationKind;
+  smsType: SmsType;
+  greetingName: string;
+  message: string;
+  churchName: string;
+  homecellName?: string | null;
+  dedupeKey: string;
+}): Promise<'SENT' | 'FAILED' | 'SKIPPED'> {
+  if (options.member.email) {
+    const input = {
+      kind: options.kind,
+      name: options.greetingName,
+      churchName: options.churchName,
+      message: options.message,
+      homecellName: options.homecellName,
+      portalUrl: env.FRONTEND_URL,
+    };
+
+    return sendMail({
+      to: options.member.email,
+      subject: celebrationSubject(input),
+      html: celebrationHtml(input),
+      text: celebrationText(input),
+      type: options.kind,
+      member: { id: options.member.id, name: options.member.name },
+      dedupeKey: options.dedupeKey,
+    });
+  }
+
+  if (options.member.phone) {
+    return sendSms({
+      member: { id: options.member.id, name: options.member.name },
+      phone: options.member.phone,
+      type: options.smsType,
+      message: options.message,
+      dedupeKey: options.dedupeKey,
+    });
+  }
+
+  return 'SKIPPED';
+}
+
+/**
  * SRS FR-SMS-001: greets every member whose birthday falls today.
  * Matching is on the denormalised `birthMonthDay` key, so it is one indexed lookup
  * rather than a scan with date arithmetic.
@@ -115,21 +178,34 @@ export async function dispatchBirthdayMessages(referenceDate = new Date()): Prom
   const key = dayjs.utc(referenceDate).format('MM-DD');
   const dateStamp = dayjs.utc(referenceDate).format('YYYY-MM-DD');
 
+  // No phone filter: a member with only an email is greeted by email.
   const celebrants = await Member.find({
     birthMonthDay: key,
     membershipStatus: MembershipStatus.ACTIVE,
-    phone: { $exists: true, $nin: [null, ''] },
+    $or: [
+      { phone: { $exists: true, $nin: [null, ''] } },
+      { email: { $exists: true, $nin: [null, ''] } },
+    ],
   })
-    .select('firstName lastName preferredName phone')
+    .select('firstName lastName preferredName phone email homecell')
+    .populate('homecell', 'name')
     .lean();
 
   for (const member of celebrants) {
     result.attempted += 1;
     const name = member.preferredName || member.firstName;
-    const outcome = await sendSms({
-      member: { id: idString(member._id), name: `${member.firstName} ${member.lastName}` },
-      phone: member.phone,
-      type: SmsType.BIRTHDAY,
+    const outcome = await sendCelebration({
+      member: {
+        id: idString(member._id),
+        name: `${member.firstName} ${member.lastName}`,
+        email: member.email,
+        phone: member.phone,
+      },
+      kind: 'BIRTHDAY',
+      smsType: SmsType.BIRTHDAY,
+      greetingName: name,
+      churchName: settings.churchName,
+      homecellName: (member.homecell as unknown as { name?: string } | null)?.name ?? null,
       message: renderTemplate(settings.birthdayMessageTemplate, {
         name,
         church: settings.churchName,
@@ -163,18 +239,30 @@ export async function dispatchAnniversaryMessages(
   const celebrants = await Member.find({
     anniversaryMonthDay: key,
     membershipStatus: MembershipStatus.ACTIVE,
-    phone: { $exists: true, $nin: [null, ''] },
+    $or: [
+      { phone: { $exists: true, $nin: [null, ''] } },
+      { email: { $exists: true, $nin: [null, ''] } },
+    ],
   })
-    .select('firstName lastName preferredName phone')
+    .select('firstName lastName preferredName phone email homecell')
+    .populate('homecell', 'name')
     .lean();
 
   for (const member of celebrants) {
     result.attempted += 1;
     const name = member.preferredName || member.firstName;
-    const outcome = await sendSms({
-      member: { id: idString(member._id), name: `${member.firstName} ${member.lastName}` },
-      phone: member.phone,
-      type: SmsType.WEDDING_ANNIVERSARY,
+    const outcome = await sendCelebration({
+      member: {
+        id: idString(member._id),
+        name: `${member.firstName} ${member.lastName}`,
+        email: member.email,
+        phone: member.phone,
+      },
+      kind: 'ANNIVERSARY',
+      smsType: SmsType.WEDDING_ANNIVERSARY,
+      greetingName: name,
+      churchName: settings.churchName,
+      homecellName: (member.homecell as unknown as { name?: string } | null)?.name ?? null,
       message: renderTemplate(settings.anniversaryMessageTemplate, {
         name,
         church: settings.churchName,

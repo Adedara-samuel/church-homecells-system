@@ -37,3 +37,6 @@ Thumbs.db
 # Misc
 .vercel
 .turbo
+
+# Generated email previews
+backend/preview/

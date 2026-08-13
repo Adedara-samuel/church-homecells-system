@@ -4,6 +4,7 @@ import { assertProductionSafety, env } from './config/env';
 import { logger } from './config/logger';
 import { connectDatabase, disconnectDatabase, supportsTransactions } from './db/connection';
 import { startJobs, stopJobs } from './jobs';
+import { mailConfigured } from './modules/mail/mail.service';
 import { getSettings } from './modules/settings/settings.service';
 
 let server: Server | undefined;
@@ -33,6 +34,17 @@ async function bootstrap(): Promise<void> {
    * but it is called out here so the cause is visible in the boot logs rather than
    * discovered by a coordinator at checkout.
    */
+  /**
+   * Celebration greetings go out by email. Without SMTP credentials they are recorded
+   * as skipped rather than sent — correct, but silent unless it is said out loud here.
+   */
+  if (env.isProduction && !mailConfigured() && (settings.birthdaySmsEnabled || settings.anniversarySmsEnabled)) {
+    logger.error(
+      'Celebration greetings are enabled but no SMTP credentials are configured — ' +
+        'members with an email address will not be greeted. Check with: npm run verify:mail',
+    );
+  }
+
   if (settings.activePaymentProvider === 'MOCK' && env.isProduction) {
     logger.error(
       { envProvider: env.PAYMENT_PROVIDER },

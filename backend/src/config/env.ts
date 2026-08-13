@@ -114,6 +114,21 @@ const envSchema = z.object({
   FLUTTERWAVE_BASE_URL: z.string().url().default('https://api.flutterwave.com/v3'),
   FLUTTERWAVE_WEBHOOK_SECRET: webhookSecret,
 
+  // --- Email ----------------------------------------------------------------
+  // Leave SMTP_HOST blank to render and log celebration emails without sending them.
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  /** Defaults to true on port 465 (implicit TLS), false elsewhere (STARTTLS). */
+  SMTP_SECURE: z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined || v === '' ? undefined : v === 'true' || v === '1')),
+  MAIL_FROM_NAME: z.string().default('Church Homecell'),
+  MAIL_FROM_ADDRESS: z.string().email().default('no-reply@example.org'),
+  MAIL_REPLY_TO: z.string().email().optional().or(z.literal('')),
+
   // --- SMS ----------------------------------------------------------------
   SMS_PROVIDER: z.enum(['TERMII', 'TWILIO', 'MOCK']).default('MOCK'),
   SMS_SENDER_ID: z.string().default('ChurchHC'),

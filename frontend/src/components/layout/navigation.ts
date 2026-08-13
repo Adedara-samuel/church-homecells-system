@@ -61,7 +61,6 @@ export const NAVIGATION: NavSection[] = [
     items: [
       { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, exact: true },
       { label: 'Notifications', href: '/notifications', icon: Bell, permissions: ['notifications.view'] },
-      { label: 'Reports', href: '/reports', icon: BarChart3, permissions: ['reports.view'] },
     ],
   },
   {
@@ -127,6 +126,13 @@ export const NAVIGATION: NavSection[] = [
       { label: 'Audit logs', href: '/admin/audit', icon: ScrollText, permissions: ['audit.view'] },
       { label: 'Settings', href: '/admin/settings', icon: Settings, permissions: ['settings.view'] },
     ],
+  },
+  // Last in the list, and rendered as a plain link: reports read across every group
+  // above them, so they belong to none of them.
+  {
+    label: 'Insight',
+    pinned: true,
+    items: [{ label: 'Reports', href: '/reports', icon: BarChart3, permissions: ['reports.view'] }],
   },
 ];
 
