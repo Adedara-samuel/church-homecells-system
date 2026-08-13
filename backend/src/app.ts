@@ -15,6 +15,7 @@ import { areaRouter } from './modules/areas/area.controller';
 import { auditRouter } from './modules/audit/audit.controller';
 import { authRouter } from './modules/auth/auth.routes';
 import { dashboardRouter } from './modules/dashboard/dashboard.controller';
+import { duesRouter } from './modules/dues/dues.controller';
 import { financeRouter } from './modules/finance/finance.controller';
 import { homecellRouter } from './modules/homecells/homecell.controller';
 import { memberRouter } from './modules/members/member.controller';
@@ -135,6 +136,7 @@ export function createApp(): Application {
   api.use('/finance', financeRouter);
   api.use('/payments', paymentRouter);
   api.use('/remittances', remittanceRouter);
+  api.use('/dues', duesRouter);
   api.use('/notifications', notificationRouter);
   api.use('/sms', smsRouter);
   api.use('/reports', reportRouter);

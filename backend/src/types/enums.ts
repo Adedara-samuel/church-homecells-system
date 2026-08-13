@@ -258,6 +258,28 @@ export const ExpenseStatus = {
 } as const;
 export type ExpenseStatus = (typeof ExpenseStatus)[keyof typeof ExpenseStatus];
 
+/**
+ * A dues obligation for one Homecell for one period.
+ *
+ * PROCESSING means a provider checkout is open against it — the guard that stops the
+ * same month being paid twice while the first payment is still in flight.
+ */
+export const DuesInvoiceStatus = {
+  OUTSTANDING: 'OUTSTANDING',
+  PROCESSING: 'PROCESSING',
+  PAID: 'PAID',
+  WAIVED: 'WAIVED',
+  CANCELLED: 'CANCELLED',
+} as const;
+export type DuesInvoiceStatus = (typeof DuesInvoiceStatus)[keyof typeof DuesInvoiceStatus];
+
+/** How often a dues definition raises an invoice. */
+export const DuesFrequency = {
+  MONTHLY: 'MONTHLY',
+  ONE_OFF: 'ONE_OFF',
+} as const;
+export type DuesFrequency = (typeof DuesFrequency)[keyof typeof DuesFrequency];
+
 export const RemittanceStatus = {
   DRAFT: 'DRAFT',
   PENDING_APPROVAL: 'PENDING_APPROVAL',
@@ -275,6 +297,11 @@ export const RemittanceChannel = {
   MANUAL: 'MANUAL',
   /** Disbursed through the configured payment provider. */
   PROVIDER_TRANSFER: 'PROVIDER_TRANSFER',
+  /**
+   * Coordinator paid online through the provider's hosted checkout. The purse is
+   * debited by the payment webhook, never by the browser returning from checkout.
+   */
+  PROVIDER_CHECKOUT: 'PROVIDER_CHECKOUT',
 } as const;
 export type RemittanceChannel = (typeof RemittanceChannel)[keyof typeof RemittanceChannel];
 
@@ -322,6 +349,8 @@ export const PaymentPurpose = {
   OFFERING: 'OFFERING',
   OTHER_INCOME: 'OTHER_INCOME',
   REMITTANCE: 'REMITTANCE',
+  /** Monthly dues and zone levies settled through the provider. */
+  DUES: 'DUES',
 } as const;
 export type PaymentPurpose = (typeof PaymentPurpose)[keyof typeof PaymentPurpose];
 
@@ -379,6 +408,10 @@ export const NotificationType = {
   ANNIVERSARY_TODAY: 'ANNIVERSARY_TODAY',
   ATTENDANCE_NOT_SUBMITTED: 'ATTENDANCE_NOT_SUBMITTED',
   RECONCILIATION_EXCEPTION: 'RECONCILIATION_EXCEPTION',
+  DUES_ISSUED: 'DUES_ISSUED',
+  DUES_DUE: 'DUES_DUE',
+  DUES_OVERDUE: 'DUES_OVERDUE',
+  DUES_PAID: 'DUES_PAID',
 } as const;
 export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
 

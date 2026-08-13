@@ -32,6 +32,7 @@ export const references = {
   expense: () => businessReference('EXP'),
   offering: () => businessReference('OFR'),
   transfer: () => businessReference('TRF'),
+  duesInvoice: () => businessReference('DUE'),
   member: (sequence: number) => `MBR-${String(sequence).padStart(6, '0')}`,
 };
 

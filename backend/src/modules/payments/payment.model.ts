@@ -58,7 +58,7 @@ export interface PaymentDoc {
 
   /** Populated once the payment has been folded into the ledger. */
   ledgerTransaction?: Types.ObjectId | null;
-  relatedModel?: 'Offering' | 'Remittance' | null;
+  relatedModel?: 'Offering' | 'Remittance' | 'DuesInvoice' | null;
   relatedId?: Types.ObjectId | null;
 
   statusHistory: PaymentStatusHistoryEntry[];
@@ -134,7 +134,11 @@ const paymentSchema = new Schema<PaymentDoc>(
     reconciliationNote: { type: String, trim: true, default: null, maxlength: 500 },
 
     ledgerTransaction: { type: Schema.Types.ObjectId, ref: 'LedgerTransaction', default: null },
-    relatedModel: { type: String, enum: ['Offering', 'Remittance', null], default: null },
+    relatedModel: {
+      type: String,
+      enum: ['Offering', 'Remittance', 'DuesInvoice', null],
+      default: null,
+    },
     relatedId: { type: Schema.Types.ObjectId, default: null },
 
     statusHistory: { type: [historySchema], default: [] },

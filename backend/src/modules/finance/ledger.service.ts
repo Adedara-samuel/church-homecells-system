@@ -46,7 +46,7 @@ export interface PostTransactionInput {
   metadata?: Record<string, unknown>;
 
   status?: TransactionStatus;
-  sourceModel?: 'Offering' | 'Expense' | 'Remittance' | 'Payment' | null;
+  sourceModel?: 'Offering' | 'Expense' | 'Remittance' | 'Payment' | 'DuesInvoice' | null;
   sourceId?: Types.ObjectId | string | null;
 
   paymentProvider?: PaymentProviderName | null;

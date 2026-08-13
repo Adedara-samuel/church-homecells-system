@@ -24,6 +24,7 @@ export const queryKeys = {
   attendance: ['attendance'] as const,
   finance: ['finance'] as const,
   remittances: ['remittances'] as const,
+  dues: ['dues'] as const,
   payments: ['payments'] as const,
   notifications: ['notifications'] as const,
   reports: ['reports'] as const,

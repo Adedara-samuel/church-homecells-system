@@ -14,6 +14,11 @@ import { dayjs, toCalendarDate } from '../utils/dates';
 import { idString } from '../utils/ids';
 import { Attendance } from '../modules/attendance/attendance.model';
 import { Homecell } from '../modules/homecells/homecell.model';
+import {
+  closeExpiredDefinitions,
+  generateAllInvoices,
+  notifyDueAndOverdue,
+} from '../modules/dues/dues.service';
 import { checkThresholdAndNotify } from '../modules/finance/purse.service';
 import { notify, resolveEscalationRecipients } from '../modules/notifications/notification.service';
 import { runReconciliation } from '../modules/payments/reconciliation.service';
@@ -144,6 +149,24 @@ export const attendanceReminderJob = safely('attendance-reminders', async () => 
   logger.info({ type, missing: missing.length }, 'Attendance reminders dispatched');
 });
 
+/**
+ * Keeps the dues ledger current: closes levies whose due date has passed, raises the
+ * new month's invoices for every active Homecell, then tells coordinators what falls
+ * due today and what is already late.
+ *
+ * Generation is idempotent — a Homecell that already has this month's invoice is left
+ * alone — so running the job twice in a day cannot double-bill anyone.
+ */
+export const duesJob = safely('dues', async () => {
+  const closed = await closeExpiredDefinitions();
+  const { homecells, created } = await generateAllInvoices();
+  const { due, overdue } = await notifyDueAndOverdue();
+  logger.info(
+    { closedLevies: closed, homecells, created, due, overdue },
+    'Dues accrual and reminders complete',
+  );
+});
+
 /** SRS §12 — nightly payment reconciliation against the active provider. */
 export const reconciliationJob = safely('payment-reconciliation', async () => {
   const settings = await getSettings();
@@ -176,6 +199,9 @@ export function startJobs(): void {
   schedule(env.ATTENDANCE_REMINDER_CRON, attendanceReminderJob, 'attendance-reminders');
   schedule(env.RECONCILIATION_CRON, reconciliationJob, 'payment-reconciliation');
   schedule('0 9 * * *', remittanceReminderJob, 'remittance-reminders');
+  // Early enough that a coordinator opening the app in the morning already sees the
+  // new month's charge and any due-today reminder.
+  schedule(env.DUES_CRON, duesJob, 'dues');
 }
 
 export function stopJobs(): void {

@@ -6,6 +6,7 @@ import {
   Bell,
   Building2,
   CalendarCheck,
+  CalendarClock,
   ClipboardList,
   CreditCard,
   FileText,
@@ -76,6 +77,12 @@ export const NAVIGATION: NavSection[] = [
       { label: 'Offerings', href: '/finance/offerings', icon: Banknote, permissions: ['finance.view'] },
       { label: 'Expenses', href: '/finance/expenses', icon: Receipt, permissions: ['finance.view'] },
       { label: 'Remittances', href: '/finance/remittances', icon: ClipboardList, permissions: ['remittances.view'] },
+      {
+        label: 'Dues & levies',
+        href: '/finance/dues',
+        icon: CalendarClock,
+        permissions: ['dues.view'],
+      },
       { label: 'Payments', href: '/finance/payments', icon: CreditCard, permissions: ['payments.view'] },
       {
         label: 'Reconciliation',

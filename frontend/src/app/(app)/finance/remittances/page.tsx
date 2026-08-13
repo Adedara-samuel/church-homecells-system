@@ -3,15 +3,19 @@
 import * as React from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Check, ClipboardList, Plus, Send, ShieldCheck, X } from 'lucide-react';
+import { Check, ClipboardList, Download, Plus, Send, ShieldCheck, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth';
-import { formatDate, formatMinor, humanise, toDateInput } from '@/lib/utils';
+import { cn, formatDate, formatMinor, humanise, toDateInput } from '@/lib/utils';
 import { financeService, homecellsService, remittancesService, settingsService } from '@/services';
 import { queryKeys, useApiMutation, useApiQuery, useListQuery } from '@/hooks/use-api';
 import type { Remittance } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/primitives';
 import { DatePicker } from '@/components/ui/date-picker';
+import { TimePicker } from '@/components/ui/time-picker';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/primitives';
+import { DuesPanel } from './dues-panel';
 import {
   Dialog,
   DialogContent,
@@ -48,6 +52,16 @@ export default function RemittancesPage() {
   const searchParams = useSearchParams();
   const list = useListQuery();
   const [dialogOpen, setDialogOpen] = React.useState(false);
+  // The dues notifications deep-link straight to their tab.
+  const [tab, setTab] = React.useState(
+    searchParams.get('tab') === 'dues' ? 'dues' : 'remittances',
+  );
+  const { user } = useAuth();
+  const duesHomecellId =
+    (list.filters.homecellId as string | undefined) ??
+    searchParams.get('homecellId') ??
+    user?.homecell ??
+    undefined;
   const [disbursing, setDisbursing] = React.useState<Remittance | null>(null);
 
   // A dashboard threshold warning links straight here with the Homecell preselected.
@@ -140,6 +154,12 @@ export default function RemittancesPage() {
       header: '',
       render: (remittance) => (
         <div className="flex flex-wrap justify-end gap-1">
+          {/* Only a settled remittance has a receipt — an unsettled one would be
+              evidence of a payment that has not happened. */}
+          {remittance.status === 'SUCCESSFUL' && (
+            <ReceiptButton id={remittance._id} reference={remittance.reference} />
+          )}
+
           {can('remittances.approve') && remittance.status === 'PENDING_APPROVAL' && (
             <>
               <ConfirmButton
@@ -212,6 +232,17 @@ export default function RemittancesPage() {
         }
       />
 
+      <Tabs value={tab} onValueChange={setTab} className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="remittances">Remittances</TabsTrigger>
+          <TabsTrigger value="dues">Dues &amp; levies</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="dues">
+          <DuesPanel homecellId={duesHomecellId} />
+        </TabsContent>
+
+        <TabsContent value="remittances" className="space-y-4">
       <FilterBar activeFilterCount={list.activeFilterCount} onReset={list.resetFilters}>
         <div className="space-y-4">
           <OrgFilters
@@ -276,6 +307,8 @@ export default function RemittancesPage() {
           }
         />
       )}
+        </TabsContent>
+      </Tabs>
 
       <RecordRemittanceDialog
         open={dialogOpen}
@@ -284,6 +317,69 @@ export default function RemittancesPage() {
       />
       <DisburseDialog remittance={disbursing} onClose={() => setDisbursing(null)} />
     </>
+  );
+}
+
+/** Downloads the PDF receipt for a settled remittance. */
+function ReceiptButton({ id, reference }: { id: string; reference: string }) {
+  const [downloading, setDownloading] = React.useState(false);
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      disabled={downloading}
+      title="Download receipt"
+      onClick={async (event) => {
+        // The row itself navigates to the detail page.
+        event.stopPropagation();
+        setDownloading(true);
+        try {
+          await remittancesService.downloadReceipt(id, reference);
+        } catch {
+          toast.error('The receipt could not be downloaded.');
+        } finally {
+          setDownloading(false);
+        }
+      }}
+    >
+      <Download className="h-4 w-4" />
+    </Button>
+  );
+}
+
+/** `HH:mm` now, which is what a coordinator recording a just-sent transfer wants. */
+function currentTime(): string {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+}
+
+function ChannelOption({
+  selected,
+  onSelect,
+  title,
+  description,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+  title: string;
+  description: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      className={cn(
+        'rounded-lg border p-3 text-left transition-colors',
+        selected
+          ? 'border-primary bg-primary/5 ring-1 ring-primary'
+          : 'hover:bg-accent/50',
+      )}
+    >
+      <span className="block text-sm font-medium">{title}</span>
+      <span className="mt-0.5 block text-xs text-muted-foreground">{description}</span>
+    </button>
   );
 }
 
@@ -301,9 +397,11 @@ function RecordRemittanceDialog({
     homecellId: '',
     amount: '',
     date: toDateInput(),
+    time: currentTime(),
     paymentReference: '',
     description: '',
   });
+  const [channel, setChannel] = React.useState<'PROVIDER_CHECKOUT' | 'MANUAL'>('PROVIDER_CHECKOUT');
   const [receipt, setReceipt] = React.useState<{ url: string; publicId: string } | null>(null);
 
   const settings = useQuery({
@@ -326,18 +424,35 @@ function RecordRemittanceDialog({
     enabled: open && Boolean(homecellId),
   });
 
+  /** The smallest amount the rules will accept for this purse right now. */
+  const floor = useQuery({
+    queryKey: [...queryKeys.remittances, 'minimum', homecellId],
+    queryFn: () => remittancesService.minimum(homecellId),
+    enabled: open && Boolean(homecellId),
+  });
+
   React.useEffect(() => {
     if (open) {
       setForm({
         homecellId: presetHomecellId ?? user?.homecell ?? '',
         amount: '',
         date: toDateInput(),
+        time: currentTime(),
         paymentReference: '',
         description: '',
       });
+      setChannel('PROVIDER_CHECKOUT');
       setReceipt(null);
     }
   }, [open, presetHomecellId, user?.homecell]);
+
+  // Pre-fills the amount the purse is required to shed, which is what the coordinator
+  // is being asked for in the overwhelming majority of cases.
+  React.useEffect(() => {
+    if (floor.data?.minimumMinor) {
+      setForm((f) => (f.amount ? f : { ...f, amount: String(floor.data!.minimumMinor / 100) }));
+    }
+  }, [floor.data]);
 
   const mutation = useApiMutation(
     () =>
@@ -345,27 +460,44 @@ function RecordRemittanceDialog({
         homecellId,
         amount: Number(form.amount),
         date: form.date,
-        channel: 'MANUAL',
+        time: form.time,
+        channel,
         paymentReference: form.paymentReference.trim() || undefined,
         description: form.description.trim() || undefined,
         receiptUrl: receipt?.url,
         receiptPublicId: receipt?.publicId,
       }),
     {
-      successMessage: 'Remittance recorded',
+      successMessage:
+        channel === 'PROVIDER_CHECKOUT'
+          ? 'Opening the payment page…'
+          : 'Remittance recorded',
       invalidates: [queryKeys.remittances, queryKeys.finance, queryKeys.dashboard],
-      onSuccess: () => onOpenChange(false),
+      onSuccess: (remittance) => {
+        // Paying online: hand the browser to the provider. The purse is untouched
+        // until the provider's webhook confirms the payment.
+        const url = (remittance as Remittance)?.checkout?.authorizationUrl;
+        if (url) {
+          window.location.href = url;
+          return;
+        }
+        onOpenChange(false);
+      },
     },
   );
 
-  const receiptRequired = settings.data?.remittanceRequiresReceipt ?? true;
+  const paysOnline = channel === 'PROVIDER_CHECKOUT';
+  const receiptRequired = (settings.data?.remittanceRequiresReceipt ?? true) && !paysOnline;
   const amountMinor = Math.round(Number(form.amount || 0) * 100);
   const exceedsBalance = purse.data ? amountMinor > purse.data.balance.availableMinor : false;
+  const minimumMinor = floor.data?.minimumMinor ?? 0;
+  const belowMinimum = minimumMinor > 0 && amountMinor > 0 && amountMinor < minimumMinor;
 
   const canSubmit =
     Boolean(homecellId) &&
     Number(form.amount) > 0 &&
     !exceedsBalance &&
+    !belowMinimum &&
     (!receiptRequired || Boolean(receipt));
 
   return (
@@ -391,49 +523,96 @@ function RecordRemittanceDialog({
             />
           </Field>
 
-          {purse.data && (
+          {floor.data && (
             <div className="rounded-md border bg-muted/40 p-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Available balance</span>
-                <span className="tabular font-medium">
-                  {formatMinor(purse.data.balance.availableMinor, purse.data.currency)}
+                <span className="font-medium tabular-nums">
+                  {formatMinor(floor.data.availableMinor, floor.data.currency)}
                 </span>
               </div>
-              {purse.data.requiresRemittance && (
-                <div className="mt-1 flex justify-between text-warning">
-                  <span>Suggested remittance</span>
-                  <span className="tabular font-medium">
-                    {formatMinor(purse.data.suggestedRemittanceMinor, purse.data.currency)}
+              <div className="mt-1 flex justify-between">
+                <span className="text-muted-foreground">Maximum purse threshold</span>
+                <span className="font-medium tabular-nums">
+                  {formatMinor(floor.data.thresholdMinor, floor.data.currency)}
+                </span>
+              </div>
+              {floor.data.aboveThreshold && (
+                <div className="mt-2 flex justify-between border-t pt-2 text-warning">
+                  <span className="font-medium">Minimum you must remit</span>
+                  <span className="font-semibold tabular-nums">
+                    {formatMinor(floor.data.minimumMinor, floor.data.currency)}
                   </span>
                 </div>
               )}
             </div>
           )}
 
+          <Field label="How are you paying?" required>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <ChannelOption
+                selected={paysOnline}
+                onSelect={() => setChannel('PROVIDER_CHECKOUT')}
+                title="Pay now online"
+                description="Card or bank transfer through the payment provider"
+              />
+              <ChannelOption
+                selected={!paysOnline}
+                onSelect={() => setChannel('MANUAL')}
+                title="Bank transfer"
+                description="Already sent it — upload the proof of payment"
+              />
+            </div>
+          </Field>
+
           <Field
             label="Amount"
             htmlFor="remittance-amount"
             required
-            error={exceedsBalance ? 'The amount exceeds the available purse balance.' : undefined}
+            error={
+              exceedsBalance
+                ? 'The amount exceeds the available purse balance.'
+                : belowMinimum
+                  ? `The purse is above its threshold, so at least ${formatMinor(
+                      minimumMinor,
+                      floor.data?.currency,
+                    )} must be remitted.`
+                  : undefined
+            }
           >
             <MoneyInput
               id="remittance-amount"
               value={form.amount}
               onChange={(event) => setForm((f) => ({ ...f, amount: event.target.value }))}
               placeholder="0.00"
-              aria-invalid={exceedsBalance}
+              aria-invalid={exceedsBalance || belowMinimum}
             />
           </Field>
 
-          <Field label="Remittance date" htmlFor="remittance-date" required>
-            <DatePicker
-              id="remittance-date"
-              value={form.date}
-              max={toDateInput()}
-              clearable={false}
-              onChange={(date) => setForm((f) => ({ ...f, date: date ?? '' }))}
-            />
-          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Remittance date" htmlFor="remittance-date" required>
+              <DatePicker
+                id="remittance-date"
+                value={form.date}
+                max={toDateInput()}
+                clearable={false}
+                onChange={(date) => setForm((f) => ({ ...f, date: date ?? '' }))}
+              />
+            </Field>
+            <Field
+              label="Time"
+              htmlFor="remittance-time"
+              required
+              hint="When the money was sent"
+            >
+              <TimePicker
+                id="remittance-time"
+                value={form.time}
+                clearable={false}
+                onChange={(time) => setForm((f) => ({ ...f, time: time ?? f.time }))}
+              />
+            </Field>
+          </div>
 
           <Field
             label="Payment / transfer reference"
@@ -456,18 +635,26 @@ function RecordRemittanceDialog({
             />
           </Field>
 
-          <Field
-            label="Proof of payment"
-            required={receiptRequired}
-            error={receiptRequired && !receipt ? 'Proof of payment is required.' : undefined}
-          >
-            <FileUploadField
-              value={receipt}
-              onChange={setReceipt}
-              folder="receipts"
-              label="Upload proof of payment"
-            />
-          </Field>
+          {paysOnline ? (
+            <p className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
+              You will be taken to the payment provider to complete this payment. The purse is
+              only debited once the provider confirms it — nothing is deducted if the payment
+              is abandoned or fails.
+            </p>
+          ) : (
+            <Field
+              label="Proof of payment"
+              required={receiptRequired}
+              error={receiptRequired && !receipt ? 'Proof of payment is required.' : undefined}
+            >
+              <FileUploadField
+                value={receipt}
+                onChange={setReceipt}
+                folder="receipts"
+                label="Upload proof of payment"
+              />
+            </Field>
+          )}
         </div>
 
         <DialogFooter>
@@ -475,7 +662,7 @@ function RecordRemittanceDialog({
             Cancel
           </Button>
           <Button onClick={() => mutation.mutate()} loading={mutation.isPending} disabled={!canSubmit}>
-            Record remittance
+            {paysOnline ? 'Continue to payment' : 'Record remittance'}
           </Button>
         </DialogFooter>
       </DialogContent>

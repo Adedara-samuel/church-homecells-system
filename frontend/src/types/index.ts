@@ -86,7 +86,7 @@ export type PaymentStatus =
   | 'CANCELLED'
   | 'REVERSED'
   | 'REFUNDED';
-export type PaymentPurpose = 'OFFERING' | 'OTHER_INCOME' | 'REMITTANCE';
+export type PaymentPurpose = 'OFFERING' | 'OTHER_INCOME' | 'REMITTANCE' | 'DUES';
 export type ReconciliationStatus =
   | 'UNRECONCILED'
   | 'MATCHED'
@@ -408,11 +408,87 @@ export interface Expense {
   createdAt: string;
 }
 
+export type DuesFrequency = 'MONTHLY' | 'ONE_OFF';
+export type DuesInvoiceStatus =
+  | 'OUTSTANDING'
+  | 'PROCESSING'
+  | 'PAID'
+  | 'WAIVED'
+  | 'CANCELLED';
+
+/** A charge a Zone levies on its Homecells — the monthly due, or a named levy. */
+export interface DuesDefinition {
+  _id: string;
+  zone: Reference;
+  name: string;
+  description?: string | null;
+  frequency: DuesFrequency;
+  amountMinor: number;
+  currency: string;
+  startDate: string;
+  endDate?: string | null;
+  dueDate?: string | null;
+  dueDayOfMonth: number;
+  status: 'ACTIVE' | 'INACTIVE';
+  /** Set when a levy closed itself because its due date passed. */
+  autoClosedAt?: string | null;
+  isPrimaryMonthlyDue: boolean;
+  createdAt: string;
+}
+
+export interface DuesInvoiceSummary {
+  id: string;
+  reference: string;
+  name: string;
+  frequency: DuesFrequency;
+  periodKey: string;
+  periodLabel: string;
+  dueDate: string;
+  amountMinor: number;
+  amount: number;
+  status: DuesInvoiceStatus;
+  overdue: boolean;
+}
+
+export interface DuesStatement {
+  homecellId: string;
+  homecellName: string;
+  homecellCode: string;
+  currency: string;
+  outstanding: DuesInvoiceSummary[];
+  totalOutstandingMinor: number;
+  overdueCount: number;
+  processingCount: number;
+  paidThisYearMinor: number;
+}
+
+/** What the rules require this Homecell to remit right now. */
+export interface RemittanceFloor {
+  minimumMinor: number;
+  availableMinor: number;
+  thresholdMinor: number;
+  aboveThreshold: boolean;
+  currency: string;
+}
+
+export interface CheckoutSession {
+  reference: string;
+  provider: PaymentProviderName;
+  authorizationUrl: string | null;
+  accessCode?: string | null;
+  amountMinor?: number;
+  currency?: string;
+}
+
 export interface Remittance {
   _id: string;
   reference: string;
   homecell: Reference;
   date: string;
+  /** Exact instant the money was sent — date and time. */
+  remittedAt?: string;
+  /** Present only on the response that opened an online checkout. */
+  checkout?: CheckoutSession;
   amountMinor: number;
   currency: string;
   channel: RemittanceChannel;

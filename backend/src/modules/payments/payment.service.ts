@@ -1,5 +1,5 @@
 import type { Request } from 'express';
-import type { ClientSession, FilterQuery } from 'mongoose';
+import type { ClientSession, FilterQuery, Types } from 'mongoose';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { withTransaction } from '../../db/transaction';
@@ -33,9 +33,17 @@ import { idString, references, toObjectId } from '../../utils/ids';
 import { formatMoney, toMinor } from '../../utils/money';
 import { paginate } from '../../utils/query';
 import { recordAudit } from '../audit/audit.service';
+import { DuesInvoice } from '../dues/dues.model';
+import {
+  claimInvoices,
+  notifyDuesPaid,
+  priceSelection,
+  releaseInvoicesForPayment,
+  settleInvoicesForPayment,
+} from '../dues/dues.service';
 import { Homecell } from '../homecells/homecell.model';
 import { LedgerTransaction } from '../finance/ledger.model';
-import { postTransaction } from '../finance/ledger.service';
+import { assertSufficientBalance, postTransaction } from '../finance/ledger.service';
 import { Offering, OfferingChannel } from '../finance/offering.model';
 import { checkThresholdAndNotify } from '../finance/purse.service';
 import { notify, resolveEscalationRecipients } from '../notifications/notification.service';
@@ -61,7 +69,13 @@ const PURPOSE_TO_LEDGER_TYPE: Record<PaymentPurpose, TransactionType> = {
   [PaymentPurpose.OFFERING]: TransactionType.OFFERING,
   [PaymentPurpose.OTHER_INCOME]: TransactionType.OTHER_INCOME,
   [PaymentPurpose.REMITTANCE]: TransactionType.REMITTANCE,
+  // Dues leave the Homecell purse for the Zone, exactly like a remittance, so they
+  // post the same DEBIT type and roll up into the same "remitted" totals.
+  [PaymentPurpose.DUES]: TransactionType.REMITTANCE,
 };
+
+/** Purposes whose checkout moves money *out* of the purse rather than into it. */
+const OUTGOING_PURPOSES: PaymentPurpose[] = [PaymentPurpose.REMITTANCE, PaymentPurpose.DUES];
 
 function pushStatus(
   payment: PaymentDocument,
@@ -194,6 +208,192 @@ export async function initiatePayment(
   };
 }
 
+export interface CheckoutInput {
+  actor: AuthenticatedUser;
+  purpose: PaymentPurpose;
+  homecell: { _id: Types.ObjectId; area: Types.ObjectId; zone: Types.ObjectId; name: string };
+  amountMinor: number;
+  currency: string;
+  description: string;
+  email?: string;
+  relatedModel?: 'Remittance' | 'DuesInvoice';
+  relatedId?: Types.ObjectId | null;
+  /** Where the browser lands after checkout, minus the reference. */
+  callbackPath?: string;
+}
+
+/**
+ * Opens a provider checkout for money leaving a Homecell purse.
+ *
+ * The payment record exists before the provider is contacted, so a provider call that
+ * times out still leaves an auditable record rather than a silent gap, and the caller
+ * gets a payment it can safely reconcile later. Nothing here touches the ledger: only
+ * the webhook or an explicit verification settles.
+ */
+export async function createCheckoutPayment(input: CheckoutInput): Promise<PaymentDocument> {
+  const settings = await getSettings();
+  if (!settings.paymentsEnabled) {
+    throw new ConflictError('Online payments are currently disabled.');
+  }
+
+  const provider = await getActiveProvider();
+  const reference = references.payment();
+
+  const payment = await Payment.create({
+    reference,
+    idempotencyKey: `payment-in:${reference}`,
+    direction: PaymentDirection.INBOUND,
+    purpose: input.purpose,
+    provider: provider.name,
+    homecell: input.homecell._id,
+    area: input.homecell.area,
+    zone: input.homecell.zone,
+    amountMinor: input.amountMinor,
+    currency: input.currency,
+    status: PaymentStatus.PENDING,
+    customerEmail: input.email ?? input.actor.email,
+    customerName: input.actor.fullName,
+    description: input.description,
+    relatedModel: input.relatedModel ?? null,
+    relatedId: input.relatedId ?? null,
+    initiatedBy: input.actor.id,
+    statusHistory: [{ status: PaymentStatus.PENDING, at: new Date(), source: 'SYSTEM' }],
+  });
+
+  try {
+    const result = await provider.initializePayment({
+      reference,
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      email: input.email ?? input.actor.email,
+      name: input.actor.fullName,
+      description: input.description,
+      callbackUrl: `${env.FRONTEND_URL}${
+        input.callbackPath ?? '/payments/callback'
+      }?reference=${encodeURIComponent(reference)}`,
+      metadata: {
+        homecellId: idString(input.homecell._id),
+        purpose: input.purpose,
+        initiatedBy: input.actor.id,
+      },
+    });
+
+    payment.providerReference = result.providerReference;
+    payment.authorizationUrl = result.authorizationUrl;
+    payment.accessCode = result.accessCode;
+    payment.providerResponse = result.raw;
+    pushStatus(payment, PaymentStatus.PROCESSING, 'SYSTEM', 'Checkout session created');
+    await payment.save();
+  } catch (err) {
+    pushStatus(payment, PaymentStatus.FAILED, 'SYSTEM', (err as Error).message);
+    payment.failureReason = (err as Error).message;
+    await payment.save();
+    throw err;
+  }
+
+  return payment;
+}
+
+export interface DuesPaymentInput {
+  homecellId: string;
+  /** Omit to settle everything outstanding. */
+  invoiceIds?: string[];
+  email?: string;
+}
+
+/**
+ * Opens a checkout covering one or more dues invoices.
+ *
+ * Order is chosen so that no state is left dangling if a later step fails:
+ *   1. price the selection — every invoice must still be outstanding
+ *   2. check the purse can cover it (dues are paid from Homecell funds)
+ *   3. create the payment record
+ *   4. claim the invoices against it, which is what stops a double payment
+ *   5. contact the provider; on failure the claim is released and the payment fails
+ */
+export async function initiateDuesPayment(
+  actor: AuthenticatedUser,
+  input: DuesPaymentInput,
+  req: Request,
+) {
+  const homecell = await Homecell.findById(input.homecellId)
+    .select('_id name area zone')
+    .lean();
+  if (!homecell) throw new NotFoundError('Homecell');
+
+  const selection = await priceSelection(actor, input.homecellId, input.invoiceIds);
+  await assertSufficientBalance(homecell._id, selection.totalMinor, selection.currency);
+
+  const periods = selection.invoices.map((invoice) => invoice.periodLabel).join(', ');
+  const description = `Dues payment for ${homecell.name} — ${periods}`;
+
+  const payment = await createCheckoutPayment({
+    actor,
+    purpose: PaymentPurpose.DUES,
+    homecell,
+    amountMinor: selection.totalMinor,
+    currency: selection.currency,
+    description,
+    email: input.email,
+    relatedModel: 'DuesInvoice',
+    relatedId: selection.invoices[0]._id,
+  });
+
+  try {
+    await claimInvoices(
+      selection.invoices.map((invoice) => invoice._id),
+      payment._id,
+      payment.provider,
+    );
+  } catch (err) {
+    // The checkout is already open at the provider but nothing can settle against it,
+    // so it is failed immediately rather than left to expire.
+    pushStatus(payment, PaymentStatus.CANCELLED, 'SYSTEM', (err as Error).message);
+    payment.failureReason = (err as Error).message;
+    await payment.save();
+    throw err;
+  }
+
+  await recordAudit(
+    {
+      action: AuditAction.PAYMENT_INIT,
+      module: AuditModule.FINANCE,
+      description: `Initiated dues payment ${payment.reference} of ${formatMoney(
+        selection.totalMinor,
+        selection.currency,
+      )} for ${homecell.name} covering ${periods}`,
+      entityModel: 'Payment',
+      entityId: payment._id,
+      entityLabel: payment.reference,
+      newValues: {
+        amountMinor: selection.totalMinor,
+        invoices: selection.invoices.map((invoice) => invoice.reference),
+      },
+      zone: homecell.zone,
+      area: homecell.area,
+      homecell: homecell._id,
+    },
+    req,
+  );
+
+  return {
+    reference: payment.reference,
+    provider: payment.provider,
+    authorizationUrl: payment.authorizationUrl,
+    accessCode: payment.accessCode,
+    amountMinor: selection.totalMinor,
+    currency: selection.currency,
+    status: payment.status,
+    invoices: selection.invoices.map((invoice) => ({
+      id: idString(invoice._id),
+      reference: invoice.reference,
+      name: invoice.name,
+      periodLabel: invoice.periodLabel,
+      amountMinor: invoice.amountMinor,
+    })),
+  };
+}
+
 /**
  * Asks the provider what actually happened and applies the answer.
  *
@@ -305,26 +505,44 @@ async function settlePayment(
     req,
   );
 
-  const recipients = await resolveEscalationRecipients({
-    homecellId: payment.homecell,
-    includeHomecell: true,
-  });
-  await notify({
-    recipients,
-    type: NotificationType.PAYMENT_SUCCESSFUL,
-    severity: NotificationSeverity.SUCCESS,
-    title: 'Payment received',
-    message: `Payment ${payment.reference} of ${formatMoney(
+  if (payment.purpose === PaymentPurpose.DUES) {
+    // Names the months that were just cleared, which is the only detail the
+    // coordinator actually wants to see.
+    const invoices = await DuesInvoice.find({ payment: payment._id }).lean();
+    await notifyDuesPaid(
+      payment.homecell,
+      payment.area,
+      payment.zone,
+      invoices,
       payment.amountMinor,
       payment.currency,
-    )} was successful and has been applied to the Homecell purse.`,
-    entityModel: 'Payment',
-    entityId: payment._id,
-    actionUrl: `/finance/payments/${idString(payment._id)}`,
-    homecell: payment.homecell,
-    area: payment.area,
-    zone: payment.zone,
-  });
+      payment.reference,
+    );
+  } else {
+    const recipients = await resolveEscalationRecipients({
+      homecellId: payment.homecell,
+      includeHomecell: true,
+    });
+    const outgoing = OUTGOING_PURPOSES.includes(payment.purpose);
+    await notify({
+      recipients,
+      type: NotificationType.PAYMENT_SUCCESSFUL,
+      severity: NotificationSeverity.SUCCESS,
+      title: outgoing ? 'Remittance completed' : 'Payment received',
+      message: `Payment ${payment.reference} of ${formatMoney(
+        payment.amountMinor,
+        payment.currency,
+      )} was successful and has been ${
+        outgoing ? 'deducted from the Homecell purse' : 'applied to the Homecell purse'
+      }.`,
+      entityModel: 'Payment',
+      entityId: payment._id,
+      actionUrl: `/finance/payments/${idString(payment._id)}`,
+      homecell: payment.homecell,
+      area: payment.area,
+      zone: payment.zone,
+    });
+  }
 
   await checkThresholdAndNotify(idString(payment.homecell));
 }
@@ -336,6 +554,13 @@ async function settleInboundPayment(
   session: ClientSession | undefined,
   onRollback: (fn: () => Promise<void>) => void,
 ): Promise<void> {
+  // A remittance or dues checkout is money leaving the purse, so it settles through
+  // its own path — the shared code below credits, and these must debit.
+  if (OUTGOING_PURPOSES.includes(payment.purpose)) {
+    await settleOutgoingCheckout(payment, currency, session, onRollback);
+    return;
+  }
+
   let sourceModel: 'Offering' | null = null;
   let sourceId = payment.relatedId ?? null;
 
@@ -402,6 +627,79 @@ async function settleInboundPayment(
       { $set: { ledgerTransaction: transaction._id } },
       { session: session ?? undefined },
     );
+  }
+}
+
+/**
+ * Settles a checkout that moves money *out* of the purse — a remittance paid online,
+ * or monthly dues and levies.
+ *
+ * One payment produces exactly one DEBIT, whatever it covers: paying eight months of
+ * dues in a single checkout posts one entry for the total, not eight. The posting is
+ * keyed on the payment reference, so a webhook delivered repeatedly still debits once,
+ * and the source documents are marked inside the same transaction as the posting.
+ */
+async function settleOutgoingCheckout(
+  payment: PaymentDocument,
+  currency: string,
+  session: ClientSession | undefined,
+  onRollback: (fn: () => Promise<void>) => void,
+): Promise<void> {
+  const isDues = payment.purpose === PaymentPurpose.DUES;
+
+  // The coordinator's stated remittance date and time is the value date of the
+  // posting; dues are valued when they actually settle.
+  const remittance =
+    !isDues && payment.relatedId
+      ? await Remittance.findById(payment.relatedId).session(session ?? null)
+      : null;
+
+  const { transaction } = await postTransaction(
+    {
+      idempotencyKey: `payment:${payment.reference}`,
+      homecell: payment.homecell,
+      area: payment.area,
+      zone: payment.zone,
+      type: TransactionType.REMITTANCE,
+      amountMinor: payment.amountMinor,
+      currency,
+      valueDate: remittance?.remittedAt ?? remittance?.date ?? new Date(),
+      description: payment.description ?? `Online payment ${payment.reference}`,
+      reference: remittance?.reference ?? payment.reference,
+      sourceModel: isDues ? 'DuesInvoice' : 'Remittance',
+      sourceId: payment.relatedId ?? payment._id,
+      paymentProvider: payment.provider,
+      providerReference: payment.providerReference,
+      createdBy: payment.initiatedBy,
+      approvedBy: payment.approvedBy,
+      approvedAt: payment.approvedAt,
+    },
+    session,
+  );
+  onRollback(async () => {
+    await LedgerTransaction.deleteOne({ _id: transaction._id });
+  });
+
+  payment.ledgerTransaction = transaction._id;
+
+  if (isDues) {
+    await settleInvoicesForPayment(
+      payment._id,
+      transaction._id,
+      payment.providerReference,
+      payment.initiatedBy ?? null,
+      session,
+    );
+    return;
+  }
+
+  if (remittance) {
+    remittance.status = RemittanceStatus.SUCCESSFUL;
+    remittance.ledgerTransaction = transaction._id;
+    remittance.providerReference = payment.providerReference ?? null;
+    remittance.paymentProvider = payment.provider;
+    remittance.verifiedAt = new Date();
+    await remittance.save({ session: session ?? undefined });
   }
 }
 
@@ -473,6 +771,18 @@ async function failPayment(
       { _id: payment.relatedId },
       { $set: { status: RemittanceStatus.FAILED, failureReason: reason } },
     );
+  }
+
+  // A failed or abandoned dues checkout must not leave months stuck in PROCESSING:
+  // they go back on the outstanding list so they can be paid again.
+  if (payment.purpose === PaymentPurpose.DUES) {
+    const released = await releaseInvoicesForPayment(payment._id);
+    if (released > 0) {
+      logger.info(
+        { reference: payment.reference, released },
+        'Released dues invoices after a failed payment',
+      );
+    }
   }
 
   const recipients = await resolveEscalationRecipients({

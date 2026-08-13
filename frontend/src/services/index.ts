@@ -10,7 +10,11 @@ import type {
   AttendanceSummary,
   AuditEntry,
   Celebrations,
+  CheckoutSession,
   DashboardData,
+  DuesDefinition,
+  DuesInvoiceSummary,
+  DuesStatement,
   Expense,
   ExpenseCategory,
   Homecell,
@@ -23,6 +27,7 @@ import type {
   Purse,
   ReconciliationRun,
   Remittance,
+  RemittanceFloor,
   ReportDefinition,
   ReportResult,
   SmsLog,
@@ -199,6 +204,44 @@ export const remittancesService = {
     api.post<Remittance>(`/remittances/${id}/reverse`, { reason }).then((r) => r.data),
   attachReceipt: (id: string, receiptUrl: string, receiptPublicId?: string) =>
     api.post<Remittance>(`/remittances/${id}/receipt`, { receiptUrl, receiptPublicId }).then((r) => r.data),
+  /** The balance, the threshold, and the smallest amount the rules will accept. */
+  minimum: (homecellId: string) =>
+    api.get<RemittanceFloor>(`/remittances/minimum/${homecellId}`).then((r) => r.data),
+  downloadReceipt: (id: string, reference: string) =>
+    api.download(`/remittances/${id}/receipt`, {}, `remittance-receipt-${reference}.pdf`),
+};
+
+export const duesService = {
+  definitions: (zoneId?: string) =>
+    api.get<DuesDefinition[]>('/dues/definitions', { query: { zoneId } }).then((r) => r.data),
+  createDefinition: (body: unknown) =>
+    api.post<DuesDefinition>('/dues/definitions', body).then((r) => r.data),
+  updateDefinition: (id: string, body: unknown) =>
+    api.patch<DuesDefinition>(`/dues/definitions/${id}`, body).then((r) => r.data),
+  /** Closing a levy, or re-opening it for another year with a new due date. */
+  setDefinitionStatus: (id: string, status: 'ACTIVE' | 'INACTIVE', dueDate?: string) =>
+    api
+      .post<DuesDefinition>(`/dues/definitions/${id}/status`, { status, dueDate })
+      .then((r) => r.data),
+
+  statement: (homecellId: string) =>
+    api.get<DuesStatement>(`/dues/statement/${homecellId}`).then((r) => r.data),
+  invoices: (query: Query) => api.get<DuesInvoiceSummary[]>('/dues/invoices', { query }).then(toPage),
+  waive: (id: string, reason: string) =>
+    api.post(`/dues/invoices/${id}/waive`, { reason }).then((r) => r.data),
+
+  /** Opens a provider checkout. Omit `invoiceIds` to settle everything outstanding. */
+  pay: (homecellId: string, invoiceIds?: string[]) =>
+    api
+      .post<
+        CheckoutSession & {
+          invoices: { id: string; reference: string; name: string; periodLabel: string; amountMinor: number }[];
+        }
+      >('/dues/pay', { homecellId, invoiceIds })
+      .then((r) => r.data),
+
+  downloadReceipt: (reference: string) =>
+    api.download(`/dues/payments/${reference}/receipt`, {}, `dues-receipt-${reference}.pdf`),
 };
 
 export const paymentsService = {

@@ -1,5 +1,5 @@
 import type { Request } from 'express';
-import type { FilterQuery } from 'mongoose';
+import type { FilterQuery, Types } from 'mongoose';
 import { withTransaction } from '../../db/transaction';
 import { assertHomecellInScope, resolveScopedFilter } from '../../middleware/scope';
 import { buildSort } from '../../middleware/validate';
@@ -8,12 +8,13 @@ import {
   AuditModule,
   NotificationSeverity,
   NotificationType,
+  PaymentPurpose,
   RemittanceChannel,
   RemittanceStatus,
   TransactionType,
 } from '../../types/enums';
 import type { AuthenticatedUser } from '../../types/express';
-import { dateRange, toCalendarDate } from '../../utils/dates';
+import { dateRange, dayjs, toCalendarDate } from '../../utils/dates';
 import { ConflictError, NotFoundError, ValidationError } from '../../utils/errors';
 import { idString, references, toObjectId } from '../../utils/ids';
 import { formatMoney, toMinor } from '../../utils/money';
@@ -23,11 +24,13 @@ import { Homecell } from '../homecells/homecell.model';
 import { LedgerTransaction } from '../finance/ledger.model';
 import {
   assertSufficientBalance,
+  homecellBalance,
   postTransaction,
   reverseTransaction,
 } from '../finance/ledger.service';
+import { effectiveThreshold } from '../finance/purse.service';
 import { notify, resolveEscalationRecipients } from '../notifications/notification.service';
-import { createOutboundPayment } from '../payments/payment.service';
+import { createCheckoutPayment, createOutboundPayment } from '../payments/payment.service';
 import { getSettings } from '../settings/settings.service';
 import { Remittance, type RemittanceDoc } from './remittance.model';
 
@@ -43,6 +46,8 @@ export interface RecordRemittanceInput {
   homecellId: string;
   amount: number;
   date: string;
+  /** `HH:mm`, 24-hour. Defaults to the current time when not supplied. */
+  time?: string;
   channel?: RemittanceChannel;
   paymentReference?: string;
   receivingAccount?: string;
@@ -53,6 +58,66 @@ export interface RecordRemittanceInput {
   bankCode?: string;
   accountNumber?: string;
   accountName?: string;
+  /** Overrides the coordinator's own address on the provider's checkout page. */
+  email?: string;
+}
+
+/**
+ * The smallest remittance the rules will accept right now.
+ *
+ * SRS 8.2: a purse at or above its threshold must be brought back under it, so the
+ * minimum is exactly the excess — a purse holding ₦400,000 against a ₦100,000
+ * threshold must remit at least ₦300,000. Below the threshold there is no minimum and
+ * a Homecell may remit any amount it holds.
+ */
+export async function remittanceFloor(homecellId: string | Types.ObjectId): Promise<{
+  minimumMinor: number;
+  availableMinor: number;
+  thresholdMinor: number;
+  aboveThreshold: boolean;
+  currency: string;
+}> {
+  const homecell = await Homecell.findById(homecellId)
+    .select('maxPurseThresholdOverride')
+    .lean();
+  if (!homecell) throw new NotFoundError('Homecell');
+
+  const settings = await getSettings();
+  const balance = await homecellBalance(toObjectId(homecellId), settings.currency);
+  const { thresholdMinor } = await effectiveThreshold(homecell);
+
+  const aboveThreshold = thresholdMinor > 0 && balance.availableMinor >= thresholdMinor;
+  return {
+    minimumMinor: aboveThreshold ? balance.availableMinor - thresholdMinor : 0,
+    availableMinor: balance.availableMinor,
+    thresholdMinor,
+    aboveThreshold,
+    currency: settings.currency,
+  };
+}
+
+/** Scope guard for the read-only endpoints that take a Homecell id directly. */
+export async function assertCanViewHomecell(
+  actor: AuthenticatedUser,
+  homecellId: string,
+): Promise<void> {
+  await assertHomecellInScope(actor, homecellId);
+}
+
+/** Combines a `YYYY-MM-DD` day with an optional `HH:mm` into one instant. */
+function resolveRemittedAt(date: string, time: string | undefined): Date {
+  const parsed = dayjs(`${date} ${time ?? dayjs().format('HH:mm')}`, 'YYYY-MM-DD HH:mm', true);
+  if (!parsed.isValid()) {
+    throw new ValidationError('The remittance date and time are not a valid moment.', [
+      { field: 'time', message: 'Use a 24-hour time such as 14:30.' },
+    ]);
+  }
+  if (parsed.isAfter(dayjs())) {
+    throw new ValidationError('A remittance cannot be dated in the future.', [
+      { field: 'date', message: 'Choose the date and time the money was actually sent.' },
+    ]);
+  }
+  return parsed.toDate();
 }
 
 /**
@@ -77,6 +142,7 @@ export async function recordRemittance(
   const settings = await getSettings();
   const amountMinor = toMinor(input.amount);
   const channel = input.channel ?? RemittanceChannel.MANUAL;
+  const remittedAt = resolveRemittedAt(input.date, input.time);
 
   if (settings.remittanceRequiresReceipt && channel === RemittanceChannel.MANUAL && !input.receiptUrl) {
     throw new ValidationError('Proof of payment is required for a manual remittance.', [
@@ -87,12 +153,29 @@ export async function recordRemittance(
   // The purse must be able to cover it before anything is promised.
   await assertSufficientBalance(homecell._id, amountMinor, settings.currency);
 
+  // SRS 8.2 — a purse over its threshold must be brought back under it in one go.
+  const floor = await remittanceFloor(homecell._id);
+  if (floor.minimumMinor > 0 && amountMinor < floor.minimumMinor) {
+    throw new ValidationError(
+      `This purse holds ${formatMoney(floor.availableMinor, floor.currency)} against a maximum of ` +
+        `${formatMoney(floor.thresholdMinor, floor.currency)}, so at least ` +
+        `${formatMoney(floor.minimumMinor, floor.currency)} must be remitted.`,
+      [
+        {
+          field: 'amount',
+          message: `Enter ${formatMoney(floor.minimumMinor, floor.currency)} or more.`,
+        },
+      ],
+    );
+  }
+
   const remittance = await Remittance.create({
     reference: references.remittance(),
     homecell: homecell._id,
     area: homecell.area,
     zone: homecell.zone,
     date: toCalendarDate(input.date),
+    remittedAt,
     amountMinor,
     currency: settings.currency,
     channel,
@@ -150,6 +233,51 @@ export async function recordRemittance(
     area: homecell.area,
     zone: homecell.zone,
   });
+
+  /**
+   * Paying online opens the provider checkout straight away and hands the caller the
+   * URL to send the browser to. The remittance sits in PROCESSING until the webhook
+   * confirms the money actually arrived — a coordinator returning from the checkout
+   * page proves nothing, so the browser is never allowed to settle it.
+   */
+  if (channel === RemittanceChannel.PROVIDER_CHECKOUT) {
+    let payment;
+    try {
+      payment = await createCheckoutPayment({
+        actor,
+        purpose: PaymentPurpose.REMITTANCE,
+        homecell,
+        amountMinor,
+        currency: settings.currency,
+        description: `Remittance ${remittance.reference} from ${homecell.name}`,
+        email: input.email,
+        relatedModel: 'Remittance',
+        relatedId: remittance._id,
+      });
+    } catch (err) {
+      remittance.status = RemittanceStatus.FAILED;
+      remittance.failureReason = (err as Error).message;
+      await remittance.save();
+      throw err;
+    }
+
+    remittance.status = RemittanceStatus.PROCESSING;
+    remittance.payment = payment._id;
+    remittance.paymentProvider = payment.provider;
+    remittance.providerReference = payment.providerReference ?? null;
+    await remittance.save();
+
+    const saved = await getRemittance(actor, idString(remittance._id));
+    return {
+      ...saved,
+      checkout: {
+        reference: payment.reference,
+        provider: payment.provider,
+        authorizationUrl: payment.authorizationUrl,
+        accessCode: payment.accessCode,
+      },
+    };
+  }
 
   // Without an approval requirement, a manual remittance is verified immediately by
   // the recording user; a provider transfer still waits for its webhook.

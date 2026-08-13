@@ -16,7 +16,14 @@ export interface RemittanceDoc {
   area: Types.ObjectId;
   zone: Types.ObjectId;
 
+  /** Calendar date only — what every report, filter and roll-up groups by. */
   date: Date;
+  /**
+   * The exact moment the coordinator says the money was sent, date *and* time.
+   * Kept alongside `date` rather than replacing it so existing day-based reporting
+   * is unaffected, and printed on the receipt where the precise time matters.
+   */
+  remittedAt: Date;
   amountMinor: number;
   currency: string;
 
@@ -58,6 +65,7 @@ const remittanceSchema = new Schema<RemittanceDoc>(
     zone: { type: Schema.Types.ObjectId, ref: 'Zone', required: true },
 
     date: { type: Date, required: true },
+    remittedAt: { type: Date, required: true },
     amountMinor: { type: Number, required: true, min: 1 },
     currency: { type: String, required: true, uppercase: true, minlength: 3, maxlength: 3 },
 

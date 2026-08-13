@@ -92,6 +92,8 @@ const envSchema = z.object({
   THRESHOLD_CRON: z.string().default('0 * * * *'),
   RECONCILIATION_CRON: z.string().default('30 1 * * *'),
   ATTENDANCE_REMINDER_CRON: z.string().default('0 20 * * 0,2,4'),
+  /** Dues accrual, levy expiry and due-date reminders — daily at 06:30. */
+  DUES_CRON: z.string().default('30 6 * * *'),
 
   // --- Misc ---------------------------------------------------------------
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),

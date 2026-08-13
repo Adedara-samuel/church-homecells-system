@@ -41,7 +41,7 @@ export interface LedgerTransactionDoc {
   metadata: Record<string, unknown>;
 
   /** Link back to the source document that produced this posting. */
-  sourceModel?: 'Offering' | 'Expense' | 'Remittance' | 'Payment' | null;
+  sourceModel?: 'Offering' | 'Expense' | 'Remittance' | 'Payment' | 'DuesInvoice' | null;
   sourceId?: Types.ObjectId | null;
 
   paymentProvider?: PaymentProviderName | null;
@@ -107,7 +107,7 @@ const ledgerSchema = new Schema<LedgerTransactionDoc>(
 
     sourceModel: {
       type: String,
-      enum: ['Offering', 'Expense', 'Remittance', 'Payment', null],
+      enum: ['Offering', 'Expense', 'Remittance', 'Payment', 'DuesInvoice', null],
       default: null,
     },
     sourceId: { type: Schema.Types.ObjectId, default: null },

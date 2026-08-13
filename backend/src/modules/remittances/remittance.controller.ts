@@ -14,13 +14,19 @@ import {
 } from '../../middleware/validate';
 import { RemittanceChannel, RemittanceStatus } from '../../types/enums';
 import { asyncHandler, created, ok, paginated } from '../../utils/http';
+import { remittanceReceiptPdf } from '../receipts/receipt.service';
 import * as service from './remittance.service';
 
 export const recordRemittanceSchema = z.object({
   homecellId: objectIdSchema,
   amount: amountMajorSchema,
   date: z.string().date('Select the remittance date'),
+  time: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Enter the time as HH:mm')
+    .optional(),
   channel: z.enum(Object.values(RemittanceChannel) as [string, ...string[]]).optional(),
+  email: z.string().email('Enter a valid email address').optional(),
   paymentReference: z.string().trim().max(120).optional(),
   receivingAccount: z.string().trim().max(160).optional(),
   description: z.string().trim().max(400).optional(),
@@ -58,6 +64,21 @@ remittanceRouter.get(
   ),
 );
 
+/**
+ * What this Homecell must remit right now: the balance, the threshold, and the
+ * minimum the rules will accept. The form reads this before it lets anyone type an
+ * amount, so the requirement is visible rather than discovered on submit.
+ */
+remittanceRouter.get(
+  '/minimum/:homecellId',
+  requirePermission(Permission.REMITTANCE_VIEW),
+  validate({ params: z.object({ homecellId: objectIdSchema }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    await service.assertCanViewHomecell(currentUser(req), req.params.homecellId);
+    return ok(res, await service.remittanceFloor(req.params.homecellId));
+  }),
+);
+
 remittanceRouter.get(
   '/:id',
   requirePermission(Permission.REMITTANCE_VIEW),
@@ -65,6 +86,20 @@ remittanceRouter.get(
   asyncHandler(async (req: Request, res: Response) =>
     ok(res, await service.getRemittance(currentUser(req), req.params.id)),
   ),
+);
+
+/** The receipt for a settled remittance, as a PDF download. */
+remittanceRouter.get(
+  '/:id/receipt',
+  requirePermission(Permission.REMITTANCE_VIEW),
+  validate({ params: idParamSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { buffer, filename } = await remittanceReceiptPdf(currentUser(req), req.params.id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', String(buffer.length));
+    return res.send(buffer);
+  }),
 );
 
 remittanceRouter.post(
