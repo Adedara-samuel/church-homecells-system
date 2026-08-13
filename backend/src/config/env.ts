@@ -14,6 +14,22 @@ const booleanish = z
 
 const normalizeOrigin = (value: string) => value.trim().replace(/\/+$/, '');
 
+/**
+ * A webhook *secret* is a signing key, never an address.
+ *
+ * Putting the webhook URL here is an easy mistake — the dashboard field next to it
+ * asks for exactly that — and the damage is silent: the HMAC would be computed with
+ * the URL as its key, so every genuine provider signature fails verification and no
+ * payment ever settles. Rejected at boot rather than discovered in a webhook log.
+ */
+const webhookSecret = z
+  .string()
+  .optional()
+  .refine((value) => !value || !/^https?:\/\//i.test(value.trim()), {
+    message:
+      'must be the signing secret, not the webhook URL — leave it blank to sign with the provider secret key',
+  });
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -58,12 +74,12 @@ const envSchema = z.object({
   PAYSTACK_SECRET_KEY: z.string().optional(),
   PAYSTACK_PUBLIC_KEY: z.string().optional(),
   PAYSTACK_BASE_URL: z.string().url().default('https://api.paystack.co'),
-  PAYSTACK_WEBHOOK_SECRET: z.string().optional(),
+  PAYSTACK_WEBHOOK_SECRET: webhookSecret,
 
   FLUTTERWAVE_SECRET_KEY: z.string().optional(),
   FLUTTERWAVE_PUBLIC_KEY: z.string().optional(),
   FLUTTERWAVE_BASE_URL: z.string().url().default('https://api.flutterwave.com/v3'),
-  FLUTTERWAVE_WEBHOOK_SECRET: z.string().optional(),
+  FLUTTERWAVE_WEBHOOK_SECRET: webhookSecret,
 
   // --- SMS ----------------------------------------------------------------
   SMS_PROVIDER: z.enum(['TERMII', 'TWILIO', 'MOCK']).default('MOCK'),

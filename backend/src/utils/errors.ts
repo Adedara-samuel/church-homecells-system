@@ -117,12 +117,18 @@ export class BusinessRuleError extends AppError {
 }
 
 export class InsufficientBalanceError extends AppError {
-  constructor(available: number, requested: number, currency = 'NGN') {
+  constructor(
+    available: number,
+    requested: number,
+    currency = 'NGN',
+    /** e.g. `committedMinor` — money already promised but not yet posted. */
+    extra?: Record<string, unknown>,
+  ) {
     super(
       'Insufficient available balance.',
       422,
       ErrorCode.INSUFFICIENT_BALANCE,
-      { available, requested, currency },
+      { available, requested, currency, ...extra },
     );
   }
 }

@@ -270,6 +270,8 @@ export const paymentsService = {
   /** Receipt for any settled online payment, whatever it was for. */
   downloadReceipt: (reference: string) =>
     api.download(`/payments/${reference}/receipt`, {}, `receipt-${reference}.pdf`),
+  /** The same receipt as a Blob, for showing inline rather than saving. */
+  receiptBlob: (reference: string) => api.blob(`/payments/${reference}/receipt`),
   initiate: (body: unknown) =>
     api
       .post<{

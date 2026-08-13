@@ -243,6 +243,31 @@ export const api = {
   delete: <T>(path: string, body?: unknown, options: Omit<RequestOptions, 'method'> = {}) =>
     execute<T>(path, { ...options, method: 'DELETE', body }),
 
+  /**
+   * Fetches a binary response as a Blob instead of saving it.
+   *
+   * The receipt endpoints are authenticated, so a PDF cannot simply be pointed at with
+   * an `<iframe src>` — the browser would send no Authorization header. Fetching it
+   * here and handing back a blob lets the caller display it inline.
+   */
+  async blob(path: string, query?: RequestOptions['query']): Promise<Blob> {
+    const response = await fetch(buildUrl(path, query), {
+      headers: tokenStore.access ? { Authorization: `Bearer ${tokenStore.access}` } : {},
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new ApiError(
+        response.status,
+        (payload as { error?: ApiErrorPayload })?.error ?? {
+          code: 'DOWNLOAD_FAILED',
+          message: 'The file could not be loaded.',
+        },
+      );
+    }
+    return response.blob();
+  },
+
   /** Multipart upload — the browser sets the boundary, so no Content-Type here. */
   async upload(file: File, folder: 'members' | 'receipts' | 'documents') {
     const form = new FormData();

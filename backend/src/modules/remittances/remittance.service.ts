@@ -28,7 +28,7 @@ import {
   postTransaction,
   reverseTransaction,
 } from '../finance/ledger.service';
-import { effectiveThreshold } from '../finance/purse.service';
+import { assertSpendable, effectiveThreshold, spendableMinor } from '../finance/purse.service';
 import { notify, resolveEscalationRecipients } from '../notifications/notification.service';
 import { createCheckoutPayment, createOutboundPayment } from '../payments/payment.service';
 import { getSettings } from '../settings/settings.service';
@@ -79,6 +79,8 @@ export interface RecordRemittanceInput {
 export async function remittanceFloor(homecellId: string | Types.ObjectId): Promise<{
   minimumMinor: number;
   availableMinor: number;
+  committedMinor: number;
+  spendableMinor: number;
   thresholdMinor: number;
   aboveThreshold: boolean;
   currency: string;
@@ -89,13 +91,25 @@ export async function remittanceFloor(homecellId: string | Types.ObjectId): Prom
   if (!homecell) throw new NotFoundError('Homecell');
 
   const settings = await getSettings();
-  const balance = await homecellBalance(toObjectId(homecellId), settings.currency);
+  const position = await spendableMinor(homecellId);
   const { thresholdMinor } = await effectiveThreshold(homecell);
 
-  const aboveThreshold = thresholdMinor > 0 && balance.availableMinor >= thresholdMinor;
+  const aboveThreshold = thresholdMinor > 0 && position.availableMinor >= thresholdMinor;
+  const excess = aboveThreshold ? position.availableMinor - thresholdMinor : 0;
+
   return {
-    minimumMinor: aboveThreshold ? balance.availableMinor - thresholdMinor : 0,
-    availableMinor: balance.availableMinor,
+    /**
+     * What still has to be remitted to bring the purse under its threshold.
+     *
+     * A remittance already awaiting approval or settlement counts towards that
+     * requirement — it is money on its way out — so it is subtracted rather than
+     * demanded twice. The result is also capped at what the purse can still commit,
+     * since promised money cannot be promised again.
+     */
+    minimumMinor: Math.max(Math.min(excess - position.committedMinor, position.spendableMinor), 0),
+    availableMinor: position.availableMinor,
+    committedMinor: position.committedMinor,
+    spendableMinor: position.spendableMinor,
     thresholdMinor,
     aboveThreshold,
     currency: settings.currency,
@@ -196,8 +210,10 @@ export async function recordRemittance(
     ]);
   }
 
-  // The purse must be able to cover it before anything is promised.
-  await assertSufficientBalance(homecell._id, amountMinor, settings.currency);
+  // The purse must be able to cover it before anything is promised — counting what is
+  // already promised. Opening a checkout does not post to the ledger, so without this
+  // two overlapping remittances would each see the full balance and both settle.
+  await assertSpendable(homecell._id, amountMinor);
 
   // SRS 8.2 — a purse over its threshold must be brought back under it in one go.
   const floor = await remittanceFloor(homecell._id);

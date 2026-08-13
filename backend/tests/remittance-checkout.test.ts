@@ -139,6 +139,9 @@ describe('Remittance minimum and online checkout', () => {
      * timezone, so it is clamped rather than refused.
      */
     it('accepts a wall-clock time that only looks like the future to the server', async () => {
+      // Earlier tests left remittances pending, which are now committed against the
+      // purse, so this needs headroom of its own.
+      await fundPurse(300_000);
       const ahead = new Date(Date.now() + 3 * 60 * 60 * 1000);
       const response = await authed(coordinator).post('/remittances').send({
         homecellId: fixture.homecellA1a,
@@ -153,6 +156,7 @@ describe('Remittance minimum and online checkout', () => {
     });
 
     it('honours an explicit instant sent with a UTC offset', async () => {
+      await fundPurse(300_000);
       const sentAt = new Date(Date.now() - 2 * 60 * 60 * 1000);
       const response = await authed(coordinator).post('/remittances').send({
         homecellId: fixture.homecellA1a,
@@ -183,6 +187,7 @@ describe('Remittance minimum and online checkout', () => {
      * attachment and reversal of a historical record — not just new writes.
      */
     it('approves a remittance recorded before remittedAt existed', async () => {
+      await fundPurse(300_000);
       const created = await authed(coordinator).post('/remittances').send({
         homecellId: fixture.homecellA1a,
         amount: 300_000,
@@ -205,6 +210,50 @@ describe('Remittance minimum and online checkout', () => {
       // Healed on save from the calendar date rather than left empty.
       const healed = await Remittance.findById(created.body.data._id).lean();
       expect(healed!.remittedAt).toBeTruthy();
+    });
+
+    /**
+     * The hole that overdrew a real purse: opening a checkout posts nothing to the
+     * ledger, so two overlapping remittances each saw the full balance, both settled,
+     * and the purse went ₦534,000 negative. Money already promised now counts against
+     * what can be committed.
+     */
+    it('refuses a second remittance the purse cannot cover once the first is counted', async () => {
+      await resetDatabase();
+      fixture = await seedFixture();
+      coordinator = await login('hc.a1a@test.org');
+      await fundPurse(400_000);
+
+      const first = await authed(coordinator).post('/remittances').send({
+        homecellId: fixture.homecellA1a,
+        amount: 300_000,
+        channel: 'PROVIDER_CHECKOUT',
+      });
+      expect(first.status).toBe(201);
+
+      // The ledger is untouched, but ₦300,000 is now spoken for.
+      expect(await balanceOf()).toBe(toMinor(400_000));
+
+      const second = await authed(coordinator).post('/remittances').send({
+        homecellId: fixture.homecellA1a,
+        amount: 300_000,
+        channel: 'PROVIDER_CHECKOUT',
+      });
+
+      expect(second.status).toBe(422);
+      expect(second.body.error.code).toBe('INSUFFICIENT_BALANCE');
+      expect(second.body.error.details.committedMinor).toBe(toMinor(300_000));
+      expect(await Remittance.countDocuments({ status: 'PROCESSING' })).toBe(1);
+    });
+
+    it('reports what is already committed alongside the balance', async () => {
+      const floor = await authed(coordinator).get(`/remittances/minimum/${fixture.homecellA1a}`);
+
+      expect(floor.body.data.availableMinor).toBe(toMinor(400_000));
+      expect(floor.body.data.committedMinor).toBe(toMinor(300_000));
+      expect(floor.body.data.spendableMinor).toBe(toMinor(100_000));
+      // The minimum can never exceed what is still spendable.
+      expect(floor.body.data.minimumMinor).toBeLessThanOrEqual(floor.body.data.spendableMinor);
     });
 
     it('imposes no minimum once the purse is under its threshold', async () => {

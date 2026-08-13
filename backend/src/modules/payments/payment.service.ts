@@ -43,7 +43,8 @@ import {
 } from '../dues/dues.service';
 import { Homecell } from '../homecells/homecell.model';
 import { LedgerTransaction } from '../finance/ledger.model';
-import { assertSufficientBalance, postTransaction } from '../finance/ledger.service';
+import { postTransaction } from '../finance/ledger.service';
+import { assertSpendable } from '../finance/purse.service';
 import { Offering, OfferingChannel } from '../finance/offering.model';
 import { checkThresholdAndNotify } from '../finance/purse.service';
 import { notify, resolveEscalationRecipients } from '../notifications/notification.service';
@@ -324,7 +325,9 @@ export async function initiateDuesPayment(
   if (!homecell) throw new NotFoundError('Homecell');
 
   const selection = await priceSelection(actor, input.homecellId, input.invoiceIds);
-  await assertSufficientBalance(homecell._id, selection.totalMinor, selection.currency);
+  // Counts remittances and other dues checkouts already in flight, so the purse cannot
+  // be committed twice over while a payment is still open at the provider.
+  await assertSpendable(homecell._id, selection.totalMinor);
 
   const periods = selection.invoices.map((invoice) => invoice.periodLabel).join(', ');
   const description = `Dues payment for ${homecell.name} — ${periods}`;
@@ -540,7 +543,9 @@ async function settlePayment(
       }.`,
       entityModel: 'Payment',
       entityId: payment._id,
-      actionUrl: `/finance/payments/${idString(payment._id)}`,
+      // Straight to the receipt: it is the thing the recipient actually wants, and it
+      // exists by the time this notification is written.
+      actionUrl: `/finance/payments/receipt/${encodeURIComponent(payment.reference)}`,
       homecell: payment.homecell,
       area: payment.area,
       zone: payment.zone,

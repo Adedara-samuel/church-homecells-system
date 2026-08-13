@@ -8,18 +8,22 @@ import {
   zoneScopeFilter,
 } from '../../middleware/scope';
 import {
+  DuesInvoiceStatus,
   NotificationSeverity,
   NotificationType,
   OrgStatus,
+  RemittanceStatus,
   TransactionStatus,
   TransactionType,
 } from '../../types/enums';
 import type { AuthenticatedUser } from '../../types/express';
-import { NotFoundError } from '../../utils/errors';
+import { InsufficientBalanceError, NotFoundError } from '../../utils/errors';
 import { idString, toObjectId } from '../../utils/ids';
 import { formatMoney, toMajor } from '../../utils/money';
 import { Area } from '../areas/area.model';
+import { DuesInvoice } from '../dues/dues.model';
 import { Homecell, type HomecellDoc } from '../homecells/homecell.model';
+import { Remittance, type RemittanceDoc } from '../remittances/remittance.model';
 import { notify, resolveEscalationRecipients } from '../notifications/notification.service';
 import { getSettings } from '../settings/settings.service';
 import { Zone } from '../zones/zone.model';
@@ -105,6 +109,90 @@ function buildPurseView(
       ? Math.max(balance.availableMinor - thresholdMinor, 0)
       : 0,
   };
+}
+
+/**
+ * Money already promised to somewhere else but not yet posted.
+ *
+ * A remittance awaiting approval, or with a checkout open at the provider, has not
+ * touched the ledger yet — the balance still shows the money as available. Without
+ * counting it, two ₦314,000 remittances can each pass the balance check against a
+ * ₦400,000 purse and both settle, leaving it overdrawn. The same applies to dues
+ * invoices with a checkout open against them.
+ */
+export async function committedOutflowMinor(
+  homecellId: string | Types.ObjectId,
+  excludeRemittanceId?: string | Types.ObjectId | null,
+): Promise<number> {
+  const homecell = toObjectId(homecellId);
+
+  const remittanceFilter: FilterQuery<RemittanceDoc> = {
+    homecell,
+    // Anything not yet posted to the ledger but still expected to be.
+    status: {
+      $in: [
+        RemittanceStatus.PENDING_APPROVAL,
+        RemittanceStatus.APPROVED,
+        RemittanceStatus.PROCESSING,
+      ],
+    },
+    ledgerTransaction: null,
+  };
+  if (excludeRemittanceId) remittanceFilter._id = { $ne: toObjectId(excludeRemittanceId) };
+
+  const [remittances, dues] = await Promise.all([
+    Remittance.aggregate<{ total: number }>([
+      { $match: remittanceFilter },
+      { $group: { _id: null, total: { $sum: '$amountMinor' } } },
+    ]),
+    DuesInvoice.aggregate<{ total: number }>([
+      { $match: { homecell, status: DuesInvoiceStatus.PROCESSING } },
+      { $group: { _id: null, total: { $sum: '$amountMinor' } } },
+    ]),
+  ]);
+
+  return (remittances[0]?.total ?? 0) + (dues[0]?.total ?? 0);
+}
+
+/**
+ * What the Homecell can actually commit right now: the posted balance less everything
+ * already promised. This — not the raw balance — is what every outgoing payment is
+ * checked against.
+ */
+export async function spendableMinor(
+  homecellId: string | Types.ObjectId,
+  excludeRemittanceId?: string | Types.ObjectId | null,
+): Promise<{ availableMinor: number; committedMinor: number; spendableMinor: number }> {
+  const settings = await getSettings();
+  const [balance, committed] = await Promise.all([
+    homecellBalance(toObjectId(homecellId), settings.currency),
+    committedOutflowMinor(homecellId, excludeRemittanceId),
+  ]);
+
+  return {
+    availableMinor: balance.availableMinor,
+    committedMinor: committed,
+    spendableMinor: balance.availableMinor - committed,
+  };
+}
+
+/** Refuses an outgoing commitment the purse cannot cover once promises are counted. */
+export async function assertSpendable(
+  homecellId: string | Types.ObjectId,
+  amountMinor: number,
+  excludeRemittanceId?: string | Types.ObjectId | null,
+): Promise<void> {
+  const settings = await getSettings();
+  const { spendableMinor: spendable, committedMinor } = await spendableMinor(
+    homecellId,
+    excludeRemittanceId,
+  );
+
+  if (spendable < amountMinor) {
+    throw new InsufficientBalanceError(Math.max(spendable, 0), amountMinor, settings.currency, {
+      committedMinor,
+    });
+  }
 }
 
 export interface PurseListQuery {

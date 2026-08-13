@@ -886,7 +886,7 @@ export async function notifyDuesPaid(
     message: `${formatMoney(totalMinor, currency)} covering ${periods} has been received. Receipt ${paymentReference}.`,
     entityModel: 'Payment',
     entityId: null,
-    actionUrl: `/finance/remittances?tab=dues&homecellId=${idString(homecell)}`,
+    actionUrl: `/finance/payments/receipt/${encodeURIComponent(paymentReference)}`,
     homecell,
     area,
     zone,

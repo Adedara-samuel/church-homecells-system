@@ -8,7 +8,7 @@ import { CheckCircle2, Clock, XCircle } from 'lucide-react';
 import { paymentsService } from '@/services';
 import { formatMinor, humanise } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { PaymentReceiptButton } from '@/components/common/receipt-button';
+import { ReceiptPreview } from '@/components/common/receipt-preview';
 
 /**
  * Post-checkout landing page.
@@ -69,7 +69,13 @@ function PaymentCallback() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-muted/40 p-4">
-      <div className="w-full max-w-md rounded-xl border bg-card p-8 text-center shadow-sm">
+      {/* Widened once the receipt is on show — an A4 page needs the room to be
+          legible, but the status card alone should stay compact. */}
+      <div
+        className={`w-full rounded-xl border bg-card p-8 text-center shadow-sm transition-all ${
+          settled ? 'max-w-xl' : 'max-w-md'
+        }`}
+      >
         <div className={`mx-auto flex h-16 w-16 items-center justify-center rounded-full ${tone}`}>
           <Icon className={isLoading || (!settled && !failed) ? 'h-8 w-8 animate-pulse' : 'h-8 w-8'} />
         </div>
@@ -124,16 +130,12 @@ function PaymentCallback() {
           </p>
         )}
 
-        {/* The receipt is offered the moment the payment is confirmed — this is where
-            a coordinator actually wants it, rather than hunting for it later. */}
+        {/* The receipt appears the moment the payment is confirmed, in full, rather
+            than as a link the coordinator has to go and find. */}
         {settled && data && (
-          <div className="mt-6">
-            <PaymentReceiptButton
-              reference={data.reference}
-              variant="default"
-              size="default"
-              label="Download receipt"
-            />
+          <div className="mt-6 text-left">
+            <h2 className="mb-2 text-sm font-semibold">Your receipt</h2>
+            <ReceiptPreview reference={data.reference} />
           </div>
         )}
 
