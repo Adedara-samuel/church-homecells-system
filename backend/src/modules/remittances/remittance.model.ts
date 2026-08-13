@@ -23,7 +23,8 @@ export interface RemittanceDoc {
    * Kept alongside `date` rather than replacing it so existing day-based reporting
    * is unaffected, and printed on the receipt where the precise time matters.
    */
-  remittedAt: Date;
+  /** Absent on records created before this field existed; fall back to `date`. */
+  remittedAt?: Date;
   amountMinor: number;
   currency: string;
 
@@ -65,7 +66,11 @@ const remittanceSchema = new Schema<RemittanceDoc>(
     zone: { type: Schema.Types.ObjectId, ref: 'Zone', required: true },
 
     date: { type: Date, required: true },
-    remittedAt: { type: Date, required: true },
+    // Deliberately not required: remittances recorded before this field existed have
+    // no value, and Mongoose validates the whole document on save — making it
+    // mandatory would break approving, verifying or reversing any historical record.
+    // The hook below fills it in from the calendar date whenever one is missing.
+    remittedAt: { type: Date },
     amountMinor: { type: Number, required: true, min: 1 },
     currency: { type: String, required: true, uppercase: true, minlength: 3, maxlength: 3 },
 
@@ -109,6 +114,21 @@ const remittanceSchema = new Schema<RemittanceDoc>(
   },
   { timestamps: true, toJSON: { virtuals: true }, toObject: { virtuals: true } },
 );
+
+/**
+ * Backfills the exact timestamp for records that predate it, so a historical
+ * remittance still prints a sensible date on its receipt. Midday is used rather than
+ * midnight: the calendar date is all that was ever known, and midday survives a
+ * timezone shift in either direction without moving to the adjacent day.
+ */
+remittanceSchema.pre('validate', function backfillRemittedAt(next) {
+  if (!this.remittedAt && this.date) {
+    const midday = new Date(this.date);
+    midday.setUTCHours(12, 0, 0, 0);
+    this.remittedAt = midday;
+  }
+  next();
+});
 
 remittanceSchema.index({ reference: 1 }, { unique: true });
 remittanceSchema.index({ homecell: 1, date: -1 });

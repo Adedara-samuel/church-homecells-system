@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
     "set-provider": "tsx src/scripts/set-payment-provider.ts",
+    "backfill:remitted-at": "tsx src/scripts/backfill-remitted-at.ts",
     "seed": "tsx src/seed/index.ts",
     "seed:fresh": "tsx src/seed/index.ts --fresh",
     "lint": "eslint \"src/**/*.ts\"",

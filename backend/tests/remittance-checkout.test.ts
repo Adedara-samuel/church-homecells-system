@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import mongoose from 'mongoose';
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { env } from '../src/config/env';
@@ -114,7 +115,7 @@ describe('Remittance minimum and online checkout', () => {
 
       expect(remittance!.remittedAt).toBeTruthy();
       // Stored as a real instant, not just a calendar day.
-      expect(new Date(remittance!.remittedAt).getTime()).toBeGreaterThan(
+      expect(new Date(remittance!.remittedAt!).getTime()).toBeGreaterThan(
         new Date(remittance!.date).getTime(),
       );
     });
@@ -174,6 +175,36 @@ describe('Remittance minimum and online checkout', () => {
 
       expect(response.status).toBe(422);
       expect(response.body.error.message).toContain('future');
+    });
+
+    /**
+     * `remittedAt` was added after remittances already existed. Mongoose validates the
+     * whole document on save, so a mandatory field would fail every approval, receipt
+     * attachment and reversal of a historical record — not just new writes.
+     */
+    it('approves a remittance recorded before remittedAt existed', async () => {
+      const created = await authed(coordinator).post('/remittances').send({
+        homecellId: fixture.homecellA1a,
+        amount: 300_000,
+        ...justNow(),
+      });
+      expect(created.status).toBe(201);
+
+      // Strip the field through the native driver, reproducing a legacy record.
+      await Remittance.collection.updateOne(
+        { _id: new mongoose.Types.ObjectId(created.body.data._id) },
+        { $unset: { remittedAt: '' } },
+      );
+
+      const approver = await login('area.a1@test.org');
+      const response = await authed(approver).post(
+        `/remittances/${created.body.data._id}/approve`,
+      );
+
+      expect(response.status).toBe(200);
+      // Healed on save from the calendar date rather than left empty.
+      const healed = await Remittance.findById(created.body.data._id).lean();
+      expect(healed!.remittedAt).toBeTruthy();
     });
 
     it('imposes no minimum once the purse is under its threshold', async () => {
