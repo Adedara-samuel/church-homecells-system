@@ -16,8 +16,9 @@ import {
   TransactionStatus,
   TransactionType,
 } from '../../types/enums';
+import { ScopeLevel } from '../../types/enums';
 import type { AuthenticatedUser } from '../../types/express';
-import { InsufficientBalanceError, NotFoundError } from '../../utils/errors';
+import { InsufficientBalanceError, NotFoundError, OutOfScopeError } from '../../utils/errors';
 import { idString, toObjectId } from '../../utils/ids';
 import { formatMoney, toMajor } from '../../utils/money';
 import { Area } from '../areas/area.model';
@@ -331,6 +332,21 @@ export async function checkThresholdAndNotify(homecellId: string): Promise<boole
  *              into an Area to see the individual Homecells.
  */
 
+/**
+ * The rollup views aggregate money across Homecells, so they are for people whose job
+ * spans more than one: Area Coordinators upward.
+ *
+ * A Homecell Coordinator's `zoneId` matches their own zone, which is enough to satisfy
+ * `assertZoneInScope` — that check answers "is this your zone?", not "should you see
+ * every purse in it?". Without this they could read the zone total and every sibling
+ * Homecell's balance. They see their own purse and nothing else.
+ */
+function assertCanViewRollups(actor: AuthenticatedUser): void {
+  if (actor.scopeLevel === ScopeLevel.HOMECELL) {
+    throw new OutOfScopeError('You can only see your own Homecell purse.');
+  }
+}
+
 export interface AreaPurseRollup {
   areaId: string;
   areaName: string;
@@ -415,6 +431,7 @@ async function homecellRollup(homecells: HomecellDoc[]) {
 
 /** One row per Zone the caller can see — the church-wide and multi-zone view. */
 export async function listZonePurses(actor: AuthenticatedUser): Promise<ZonePurseRollup[]> {
+  assertCanViewRollups(actor);
   const settings = await getSettings();
 
   const zones = await Zone.find({ ...zoneScopeFilter(actor), status: OrgStatus.ACTIVE })
@@ -477,6 +494,7 @@ export async function getZonePurse(
   actor: AuthenticatedUser,
   zoneId: string,
 ): Promise<{ zone: ZonePurseRollup; areas: AreaPurseRollup[] }> {
+  assertCanViewRollups(actor);
   assertZoneInScope(actor, zoneId);
 
   const settings = await getSettings();
@@ -545,6 +563,7 @@ export async function getAreaPurses(
   actor: AuthenticatedUser,
   areaId: string,
 ): Promise<{ area: AreaPurseRollup; purses: PurseView[] }> {
+  assertCanViewRollups(actor);
   await assertAreaInScope(actor, areaId);
 
   const area = await Area.findById(areaId).select('name code zone').lean();

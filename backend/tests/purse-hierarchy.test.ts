@@ -156,18 +156,30 @@ describe('Purse hierarchy', () => {
     });
 
     /**
-     * A Homecell Coordinator belongs to their Area, so opening it is allowed — but the
-     * scope filter still narrows the result to their own Homecell. The guarantee worth
-     * asserting is what they can *see*, not the status code.
+     * A Homecell Coordinator sees their own purse and nothing else. Their `zoneId` and
+     * `areaId` match their own units, which is enough to satisfy the scope checks —
+     * those answer "is this your zone?", not "should you see every purse in it?" — so
+     * the rollup endpoints refuse them outright.
      */
-    it('shows a homecell coordinator only their own purse, not their neighbours’', async () => {
-      const response = await authed(coordinator).get(`/finance/purses/areas/${fixture.areaA1}`);
+    it('refuses a homecell coordinator every rollup view', async () => {
+      for (const path of [
+        '/finance/purses/zones',
+        `/finance/purses/zones/${fixture.zoneA}`,
+        `/finance/purses/areas/${fixture.areaA1}`,
+      ]) {
+        const response = await authed(coordinator).get(path);
+        expect(response.status).toBe(403);
+      }
+    });
 
-      expect(response.status).toBe(200);
-      expect(response.body.data.purses).toHaveLength(1);
-      expect(response.body.data.purses[0].homecellId).toBe(fixture.homecellA1a);
-      // A1b's balance must not be reachable through the area total.
-      expect(response.body.data.area.homecellHoldingsMinor).toBe(toMinor(70_000));
+    it('still lets a homecell coordinator read their own purse', async () => {
+      const own = await authed(coordinator).get(`/finance/purses/${fixture.homecellA1a}`);
+      expect(own.status).toBe(200);
+      expect(own.body.data.homecellId).toBe(fixture.homecellA1a);
+
+      // And not a neighbour's, even by direct reference.
+      const other = await authed(coordinator).get(`/finance/purses/${fixture.homecellA1b}`);
+      expect(other.status).toBe(403);
     });
   });
 });

@@ -37,11 +37,35 @@ export default function PursesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const areaId = searchParams.get('areaId') ?? (user?.homecell ? null : user?.area) ?? null;
-  const zoneId = searchParams.get('zoneId') ?? (areaId ? null : user?.zone) ?? null;
+  /**
+   * A Homecell Coordinator sees one purse: their own. They belong to a zone, so
+   * without this they would fall through to the zone rollup and see the zone total
+   * and every sibling homecell's balance. The API refuses them too — this keeps the
+   * UI from asking for something it will not get.
+   */
+  const homecellOnly = user?.scopeLevel === 'HOMECELL';
+
+  const areaId = homecellOnly
+    ? null
+    : searchParams.get('areaId') ?? (user?.homecell ? null : user?.area) ?? null;
+  const zoneId = homecellOnly
+    ? null
+    : searchParams.get('zoneId') ?? (areaId ? null : user?.zone) ?? null;
 
   // Church-wide roles land on the zone list; everyone else on their own level.
-  const level: 'zones' | 'zone' | 'area' = areaId ? 'area' : zoneId ? 'zone' : 'zones';
+  const level: 'zones' | 'zone' | 'area' | 'homecell' = homecellOnly
+    ? 'homecell'
+    : areaId
+      ? 'area'
+      : zoneId
+        ? 'zone'
+        : 'zones';
+
+  const ownPurse = useApiQuery(
+    [...queryKeys.finance, 'purse', user?.homecell ?? 'none'],
+    () => financeService.purse(user!.homecell!),
+    { enabled: level === 'homecell' && Boolean(user?.homecell), refetchInterval: 120_000 },
+  );
 
   const zones = useApiQuery(
     [...queryKeys.finance, 'purses', 'zones'],
@@ -62,6 +86,34 @@ export default function PursesPage() {
   );
 
   const active = level === 'zones' ? zones : level === 'zone' ? zone : area;
+
+  if (level === 'homecell') {
+    return (
+      <>
+        <PageHeader
+          title="My homecell purse"
+          description="Your balance is the sum of posted ledger transactions — it is never edited directly."
+          breadcrumbs={[{ label: 'Finance' }, { label: 'Purse' }]}
+        />
+
+        {ownPurse.isLoading ? (
+          <CardSkeleton count={1} />
+        ) : ownPurse.isError ? (
+          <ErrorState error={ownPurse.error} onRetry={() => void ownPurse.refetch()} />
+        ) : ownPurse.data ? (
+          <div className="max-w-md">
+            <PurseCard purse={ownPurse.data} canRemit={can('remittances.create')} />
+          </div>
+        ) : (
+          <EmptyState
+            icon={Wallet}
+            title="No purse yet"
+            description="Your purse appears here as soon as your homecell records its first financial transaction."
+          />
+        )}
+      </>
+    );
+  }
 
   if (level !== 'area') {
     return (
