@@ -15,6 +15,18 @@ const booleanish = z
 const normalizeOrigin = (value: string) => value.trim().replace(/\/+$/, '');
 
 /**
+ * A token lifetime, as a number and a unit — `15m`, `2d`.
+ *
+ * Validated rather than parsed leniently: a bare `2` carries no unit, so the parser
+ * cannot tell two seconds from two days and quietly falls back to a default. A session
+ * length that silently differs from what the configuration says is exactly the kind of
+ * thing nobody notices until it matters.
+ */
+const duration = z
+  .string()
+  .regex(/^\d+[smhd]$/, 'must be a number followed by s, m, h or d — for example 15m or 2d');
+
+/**
  * A webhook *secret* is a signing key, never an address.
  *
  * Putting the webhook URL here is an easy mistake — the dashboard field next to it
@@ -50,8 +62,12 @@ const envSchema = z.object({
   // --- Auth ---------------------------------------------------------------
   JWT_ACCESS_SECRET: z.string().min(16).default('dev-only-access-secret-change-me-please'),
   JWT_REFRESH_SECRET: z.string().min(16).default('dev-only-refresh-secret-change-me-please'),
-  JWT_ACCESS_TTL: z.string().default('15m'),
-  JWT_REFRESH_TTL: z.string().default('30d'),
+  JWT_ACCESS_TTL: duration.default('15m'),
+  /**
+   * How long a signed-in session survives. The access token keeps refreshing silently
+   * within this window; once it passes, the user signs in again.
+   */
+  JWT_REFRESH_TTL: duration.default('2d'),
   COOKIE_DOMAIN: z.string().optional(),
   COOKIE_SECURE: booleanish,
 

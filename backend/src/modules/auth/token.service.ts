@@ -49,10 +49,13 @@ export function generateRefreshToken(): string {
   return crypto.randomBytes(48).toString('base64url');
 }
 
+const DEFAULT_REFRESH_TTL_MS = 2 * 24 * 60 * 60 * 1000;
+
 function refreshTtlMs(): number {
   const raw = env.JWT_REFRESH_TTL;
   const match = /^(\d+)([smhd])$/.exec(raw);
-  if (!match) return 30 * 24 * 60 * 60 * 1000;
+  // A malformed value must not silently grant a longer session than intended.
+  if (!match) return DEFAULT_REFRESH_TTL_MS;
   const value = Number(match[1]);
   const unit = match[2];
   const multipliers: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
