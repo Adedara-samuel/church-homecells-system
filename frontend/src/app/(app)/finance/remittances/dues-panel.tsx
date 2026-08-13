@@ -261,28 +261,3 @@ function InvoiceRow({
   );
 }
 
-/** Receipt download, shown once a dues payment has settled. */
-export function DuesReceiptButton({ reference }: { reference: string }) {
-  const [downloading, setDownloading] = React.useState(false);
-
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      disabled={downloading}
-      onClick={async () => {
-        setDownloading(true);
-        try {
-          await duesService.downloadReceipt(reference);
-        } catch {
-          toast.error('The receipt could not be downloaded.');
-        } finally {
-          setDownloading(false);
-        }
-      }}
-    >
-      {downloading ? <Loader2 className="animate-spin" /> : <Download />}
-      Receipt
-    </Button>
-  );
-}

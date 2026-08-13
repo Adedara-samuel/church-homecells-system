@@ -45,9 +45,15 @@ const POPULATE = [
 export interface RecordRemittanceInput {
   homecellId: string;
   amount: number;
-  date: string;
-  /** `HH:mm`, 24-hour. Defaults to the current time when not supplied. */
+  /** Omitted when paying online, where the server's clock is authoritative. */
+  date?: string;
+  /** `HH:mm`, 24-hour. Legacy companion to `date`; prefer `remittedAt`. */
   time?: string;
+  /**
+   * The exact instant the money was sent, ISO 8601 with the client's UTC offset.
+   * Unambiguous across timezones, unlike a bare date and wall-clock time.
+   */
+  remittedAt?: string;
   channel?: RemittanceChannel;
   paymentReference?: string;
   receivingAccount?: string;
@@ -104,20 +110,60 @@ export async function assertCanViewHomecell(
   await assertHomecellInScope(actor, homecellId);
 }
 
-/** Combines a `YYYY-MM-DD` day with an optional `HH:mm` into one instant. */
-function resolveRemittedAt(date: string, time: string | undefined): Date {
-  const parsed = dayjs(`${date} ${time ?? dayjs().format('HH:mm')}`, 'YYYY-MM-DD HH:mm', true);
+/**
+ * Works out when the money actually left.
+ *
+ * Paying online is happening *now*, so the server's own clock is authoritative and
+ * nothing the client sends is consulted — the coordinator is not describing a past
+ * event, they are starting one.
+ *
+ * For an offline transfer the coordinator is describing a moment that has passed, and
+ * the client sends it as `remittedAt`: a full ISO instant carrying the browser's UTC
+ * offset. A bare `HH:mm` cannot be trusted, because the server and the browser are
+ * rarely in the same timezone — a coordinator in Lagos (UTC+1) submitting "09:41"
+ * looks an hour into the future to a server running in UTC, which is exactly the
+ * rejection this replaces.
+ */
+function resolveRemittedAt(
+  input: Pick<RecordRemittanceInput, 'date' | 'time' | 'remittedAt'>,
+  channel: RemittanceChannel,
+): Date {
+  const now = dayjs();
+
+  if (channel === RemittanceChannel.PROVIDER_CHECKOUT) return now.toDate();
+
+  if (input.remittedAt) {
+    const instant = dayjs(input.remittedAt);
+    if (!instant.isValid()) {
+      throw new ValidationError('The remittance date and time are not a valid moment.', [
+        { field: 'remittedAt', message: 'Select the date and time the money was sent.' },
+      ]);
+    }
+    // A real instant can be compared safely; only a genuinely future one is refused,
+    // with a minute of tolerance for ordinary clock drift between machines.
+    if (instant.isAfter(now.add(1, 'minute'))) {
+      throw new ValidationError('A remittance cannot be dated in the future.', [
+        { field: 'date', message: 'Choose the date and time the money was actually sent.' },
+      ]);
+    }
+    return instant.toDate();
+  }
+
+  // Fallback for a client that sends only a wall clock. The calendar day is checked
+  // — a future *date* is always wrong — but a same-day time that appears to be ahead
+  // is treated as timezone skew and clamped to now rather than rejected.
+  const parsed = dayjs(`${input.date} ${input.time ?? now.format('HH:mm')}`, 'YYYY-MM-DD HH:mm', true);
   if (!parsed.isValid()) {
     throw new ValidationError('The remittance date and time are not a valid moment.', [
       { field: 'time', message: 'Use a 24-hour time such as 14:30.' },
     ]);
   }
-  if (parsed.isAfter(dayjs())) {
+  if (dayjs(input.date, 'YYYY-MM-DD', true).isAfter(now, 'day')) {
     throw new ValidationError('A remittance cannot be dated in the future.', [
-      { field: 'date', message: 'Choose the date and time the money was actually sent.' },
+      { field: 'date', message: 'Choose the date the money was actually sent.' },
     ]);
   }
-  return parsed.toDate();
+  return parsed.isAfter(now) ? now.toDate() : parsed.toDate();
 }
 
 /**
@@ -142,7 +188,7 @@ export async function recordRemittance(
   const settings = await getSettings();
   const amountMinor = toMinor(input.amount);
   const channel = input.channel ?? RemittanceChannel.MANUAL;
-  const remittedAt = resolveRemittedAt(input.date, input.time);
+  const remittedAt = resolveRemittedAt(input, channel);
 
   if (settings.remittanceRequiresReceipt && channel === RemittanceChannel.MANUAL && !input.receiptUrl) {
     throw new ValidationError('Proof of payment is required for a manual remittance.', [
@@ -174,7 +220,12 @@ export async function recordRemittance(
     homecell: homecell._id,
     area: homecell.area,
     zone: homecell.zone,
-    date: toCalendarDate(input.date),
+    // Paying online is dated by the moment it happened, not by anything the client
+    // chose; an offline transfer keeps the day the coordinator selected.
+    date:
+      channel === RemittanceChannel.PROVIDER_CHECKOUT
+        ? toCalendarDate(remittedAt)
+        : toCalendarDate(input.date ?? remittedAt),
     remittedAt,
     amountMinor,
     currency: settings.currency,
@@ -253,6 +304,7 @@ export async function recordRemittance(
         email: input.email,
         relatedModel: 'Remittance',
         relatedId: remittance._id,
+        req,
       });
     } catch (err) {
       remittance.status = RemittanceStatus.FAILED;

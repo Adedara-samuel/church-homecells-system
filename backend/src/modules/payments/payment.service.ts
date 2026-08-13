@@ -1,6 +1,6 @@
 import type { Request } from 'express';
 import type { ClientSession, FilterQuery, Types } from 'mongoose';
-import { env } from '../../config/env';
+import { resolveFrontendOrigin } from '../../config/cors';
 import { logger } from '../../config/logger';
 import { withTransaction } from '../../db/transaction';
 import { assertHomecellInScope, resolveScopedFilter } from '../../middleware/scope';
@@ -157,7 +157,7 @@ export async function initiatePayment(
       name: input.name,
       phone: input.phone,
       description: input.description,
-      callbackUrl: `${env.FRONTEND_URL}/payments/callback?reference=${encodeURIComponent(reference)}`,
+      callbackUrl: `${resolveFrontendOrigin(req)}/payments/callback?reference=${encodeURIComponent(reference)}`,
       metadata: {
         homecellId: idString(homecell._id),
         purpose: input.purpose,
@@ -220,6 +220,8 @@ export interface CheckoutInput {
   relatedId?: Types.ObjectId | null;
   /** Where the browser lands after checkout, minus the reference. */
   callbackPath?: string;
+  /** The originating request, used to return the payer to the site they started on. */
+  req?: Request;
 }
 
 /**
@@ -268,7 +270,7 @@ export async function createCheckoutPayment(input: CheckoutInput): Promise<Payme
       email: input.email ?? input.actor.email,
       name: input.actor.fullName,
       description: input.description,
-      callbackUrl: `${env.FRONTEND_URL}${
+      callbackUrl: `${resolveFrontendOrigin(input.req)}${
         input.callbackPath ?? '/payments/callback'
       }?reference=${encodeURIComponent(reference)}`,
       metadata: {
@@ -337,6 +339,7 @@ export async function initiateDuesPayment(
     email: input.email,
     relatedModel: 'DuesInvoice',
     relatedId: selection.invoices[0]._id,
+    req,
   });
 
   try {

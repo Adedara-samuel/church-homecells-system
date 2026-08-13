@@ -354,6 +354,18 @@ function currentTime(): string {
   return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 }
 
+/**
+ * Turns the picked day and wall-clock time into an ISO instant in *this* browser's
+ * timezone, so the server receives an unambiguous moment rather than a bare clock
+ * reading it would have to interpret in its own zone.
+ */
+function localInstant(date: string, time: string): string | undefined {
+  const [year, month, day] = date.split('-').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
+  if ([year, month, day, hour, minute].some((part) => Number.isNaN(part))) return undefined;
+  return new Date(year, month - 1, day, hour, minute).toISOString();
+}
+
 function ChannelOption({
   selected,
   onSelect,
@@ -459,9 +471,18 @@ function RecordRemittanceDialog({
       remittancesService.create({
         homecellId,
         amount: Number(form.amount),
-        date: form.date,
-        time: form.time,
         channel,
+        // Paying online is stamped by the server — the money is moving now, so there
+        // is nothing for the coordinator to date. An offline transfer sends the chosen
+        // moment as a full ISO instant, which carries this browser's UTC offset; a
+        // bare "09:41" would look like the future to a server running in UTC.
+        ...(paysOnline
+          ? {}
+          : {
+              date: form.date,
+              time: form.time,
+              remittedAt: localInstant(form.date, form.time),
+            }),
         paymentReference: form.paymentReference.trim() || undefined,
         description: form.description.trim() || undefined,
         receiptUrl: receipt?.url,
@@ -589,30 +610,34 @@ function RecordRemittanceDialog({
             />
           </Field>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Remittance date" htmlFor="remittance-date" required>
-              <DatePicker
-                id="remittance-date"
-                value={form.date}
-                max={toDateInput()}
-                clearable={false}
-                onChange={(date) => setForm((f) => ({ ...f, date: date ?? '' }))}
-              />
-            </Field>
-            <Field
-              label="Time"
-              htmlFor="remittance-time"
-              required
-              hint="When the money was sent"
-            >
-              <TimePicker
-                id="remittance-time"
-                value={form.time}
-                clearable={false}
-                onChange={(time) => setForm((f) => ({ ...f, time: time ?? f.time }))}
-              />
-            </Field>
-          </div>
+          {/* Nothing to date when paying online: the payment is happening now, and the
+              server stamps it. Asking would invite a value that contradicts reality. */}
+          {!paysOnline && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Remittance date" htmlFor="remittance-date" required>
+                <DatePicker
+                  id="remittance-date"
+                  value={form.date}
+                  max={toDateInput()}
+                  clearable={false}
+                  onChange={(date) => setForm((f) => ({ ...f, date: date ?? '' }))}
+                />
+              </Field>
+              <Field
+                label="Time"
+                htmlFor="remittance-time"
+                required
+                hint="When the money was sent"
+              >
+                <TimePicker
+                  id="remittance-time"
+                  value={form.time}
+                  clearable={false}
+                  onChange={(time) => setForm((f) => ({ ...f, time: time ?? f.time }))}
+                />
+              </Field>
+            </div>
+          )}
 
           <Field
             label="Payment / transfer reference"

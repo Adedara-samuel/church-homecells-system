@@ -4,6 +4,7 @@ import cors from 'cors';
 import express, { type Application, type Request, type Response } from 'express';
 import helmet from 'helmet';
 import mongoose from 'mongoose';
+import { isOriginAllowed } from './config/cors';
 import { env } from './config/env';
 import { logger } from './config/logger';
 import { errorHandler, notFoundHandler } from './middleware/error';
@@ -29,25 +30,6 @@ import { transferRouter } from './modules/transfers/transfer.controller';
 import { uploadRouter } from './modules/uploads/upload.controller';
 import { userRouter } from './modules/users/user.controller';
 import { zoneRouter } from './modules/zones/zone.controller';
-
-/**
- * An entry in `CORS_ORIGINS` matches literally, or as a wildcard when it contains
- * `*` — `https://*.vercel.app` covers the preview deployments Vercel creates per
- * branch, whose hostnames are not known ahead of time. A bare `*` allows any
- * origin (credentialed requests still get the reflected origin, never `*`).
- */
-function isOriginAllowed(origin: string): boolean {
-  const normalized = origin.replace(/\/+$/, '');
-  return env.corsOrigins.some((allowed) => {
-    if (allowed === '*') return true;
-    if (!allowed.includes('*')) return allowed === normalized;
-    const pattern = new RegExp(
-      `^${allowed.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^.]*')}$`,
-      'i',
-    );
-    return pattern.test(normalized);
-  });
-}
 
 export function createApp(): Application {
   const app = express();

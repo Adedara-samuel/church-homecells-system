@@ -267,6 +267,9 @@ export const paymentsService = {
     api
       .get<{ name: string; isConfigured: boolean; supportsPayouts: boolean }[]>('/payments/providers')
       .then((r) => r.data),
+  /** Receipt for any settled online payment, whatever it was for. */
+  downloadReceipt: (reference: string) =>
+    api.download(`/payments/${reference}/receipt`, {}, `receipt-${reference}.pdf`),
   initiate: (body: unknown) =>
     api
       .post<{

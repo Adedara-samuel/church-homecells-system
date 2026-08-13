@@ -8,6 +8,7 @@ import { CheckCircle2, Clock, XCircle } from 'lucide-react';
 import { paymentsService } from '@/services';
 import { formatMinor, humanise } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { PaymentReceiptButton } from '@/components/common/receipt-button';
 
 /**
  * Post-checkout landing page.
@@ -123,7 +124,20 @@ function PaymentCallback() {
           </p>
         )}
 
-        <Button asChild className="mt-6 w-full">
+        {/* The receipt is offered the moment the payment is confirmed — this is where
+            a coordinator actually wants it, rather than hunting for it later. */}
+        {settled && data && (
+          <div className="mt-6">
+            <PaymentReceiptButton
+              reference={data.reference}
+              variant="default"
+              size="default"
+              label="Download receipt"
+            />
+          </div>
+        )}
+
+        <Button asChild variant={settled ? 'outline' : 'default'} className="mt-3 w-full">
           <Link href="/finance/payments">Go to payments</Link>
         </Button>
       </div>

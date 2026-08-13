@@ -37,7 +37,7 @@ export interface ReceiptLine {
 }
 
 export interface ReceiptModel {
-  kind: 'REMITTANCE' | 'DUES';
+  kind: 'REMITTANCE' | 'DUES' | 'PAYMENT';
   documentTitle: string;
   reference: string;
   status: string;
@@ -208,6 +208,88 @@ export async function buildDuesReceipt(
   };
 }
 
+const PURPOSE_LABEL: Record<string, string> = {
+  [PaymentPurpose.OFFERING]: 'Homecell offering',
+  [PaymentPurpose.OTHER_INCOME]: 'Other income',
+  [PaymentPurpose.REMITTANCE]: 'Remittance',
+  [PaymentPurpose.DUES]: 'Dues & levies',
+};
+
+/**
+ * The receipt for any settled online payment, whatever it was for.
+ *
+ * Remittances and dues have richer receipts of their own — a remittance names the
+ * receiving account, a dues payment itemises the months it cleared — so this defers to
+ * those when the payment is linked to one. Everything else (an offering, other income)
+ * gets the general form.
+ *
+ * This is the entry point the UI uses, so a coordinator never has to know which of the
+ * three shapes their payment produced.
+ */
+export async function buildPaymentReceipt(
+  actor: AuthenticatedUser,
+  reference: string,
+): Promise<ReceiptModel> {
+  const payment = await Payment.findOne({ reference }).lean();
+  if (!payment) throw new NotFoundError('Payment');
+  await assertHomecellInScope(actor, payment.homecell);
+
+  if (payment.purpose === PaymentPurpose.DUES) return buildDuesReceipt(actor, reference);
+  if (payment.relatedModel === 'Remittance' && payment.relatedId) {
+    return buildRemittanceReceipt(actor, idString(payment.relatedId));
+  }
+
+  if (payment.status !== PaymentStatus.SUCCESSFUL) {
+    throw new ConflictError('A receipt is only issued once the payment has been confirmed.');
+  }
+
+  const [settings, homecell] = await Promise.all([
+    getSettings(),
+    Homecell.findById(payment.homecell).select('name code').lean(),
+  ]);
+  const { areaName, zoneName } = await orgNames(payment.area, payment.zone);
+  const initiator = await userName(payment.initiatedBy);
+
+  const purposeLabel = PURPOSE_LABEL[payment.purpose] ?? 'Payment';
+
+  return {
+    kind: 'PAYMENT',
+    documentTitle: 'Payment Receipt',
+    reference: payment.reference,
+    status: payment.status,
+    settled: true,
+    issuedAt: new Date(),
+    paidAt: payment.completedAt ?? payment.updatedAt,
+    churchName: settings.churchName,
+    payer: {
+      homecellName: homecell?.name ?? '—',
+      homecellCode: homecell?.code ?? '—',
+      areaName,
+      zoneName,
+      // The person who actually paid, falling back to whoever started it.
+      coordinator: payment.customerName ?? initiator,
+    },
+    payee: {
+      accountName: `${settings.churchName} — ${homecell?.name ?? 'Homecell'} purse`,
+      accountNumber: settings.generalPurseAccountNumber,
+      bankName: settings.generalPurseBankName,
+    },
+    method: `Online payment (${payment.provider})`,
+    providerReference: payment.providerReference ?? null,
+    paymentReference: payment.reference,
+    lines: [
+      {
+        label: purposeLabel,
+        detail: payment.description ?? undefined,
+        amountMinor: payment.amountMinor,
+      },
+    ],
+    totalMinor: payment.amountMinor,
+    currency: payment.currency,
+    note: payment.customerEmail ? `Confirmation sent to ${payment.customerEmail}.` : undefined,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
@@ -218,8 +300,14 @@ const LINE = '#E5E7EB';
 const BRAND = '#1F3A93';
 const SUCCESS = '#047857';
 
+const FILENAME_PREFIX: Record<ReceiptModel['kind'], string> = {
+  DUES: 'dues',
+  REMITTANCE: 'remittance',
+  PAYMENT: 'payment',
+};
+
 export function receiptFilename(model: ReceiptModel): string {
-  return `${model.kind === 'DUES' ? 'dues' : 'remittance'}-receipt-${model.reference}.pdf`;
+  return `${FILENAME_PREFIX[model.kind]}-receipt-${model.reference}.pdf`;
 }
 
 /**
@@ -472,6 +560,12 @@ export async function remittanceReceiptPdf(actor: AuthenticatedUser, id: string)
 
 export async function duesReceiptPdf(actor: AuthenticatedUser, reference: string) {
   const model = await buildDuesReceipt(actor, reference);
+  return { model, buffer: await renderReceiptPdf(model), filename: receiptFilename(model) };
+}
+
+/** Receipt for any settled online payment, whatever it was for. */
+export async function paymentReceiptPdf(actor: AuthenticatedUser, reference: string) {
+  const model = await buildPaymentReceipt(actor, reference);
   return { model, buffer: await renderReceiptPdf(model), filename: receiptFilename(model) };
 }
 

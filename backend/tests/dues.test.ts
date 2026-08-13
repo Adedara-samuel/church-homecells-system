@@ -365,6 +365,62 @@ describe('Dues and levies', () => {
     });
   });
 
+  describe('receipts', () => {
+    it('issues a receipt for a settled dues payment, itemised by month', async () => {
+      await fundPurse(100_000);
+      await createMonthlyDue(5_000, 3);
+      await ensureInvoicesForHomecell(fixture.homecellA1a);
+
+      const opened = await authed(coordinator)
+        .post('/dues/pay')
+        .send({ homecellId: fixture.homecellA1a });
+      const reference = opened.body.data.reference as string;
+      await verifyPayment(reference);
+
+      // Both routes resolve to the same document.
+      for (const path of [`/dues/payments/${reference}/receipt`, `/payments/${reference}/receipt`]) {
+        const response = await authed(coordinator).get(path);
+        expect(response.status).toBe(200);
+        expect(response.headers['content-type']).toBe('application/pdf');
+        expect(response.body.slice(0, 4).toString()).toBe('%PDF');
+        expect(response.body.length).toBeGreaterThan(1000);
+      }
+    });
+
+    it('refuses a receipt while the payment is still unconfirmed', async () => {
+      await fundPurse(100_000);
+      await createMonthlyDue(5_000, 1);
+      await ensureInvoicesForHomecell(fixture.homecellA1a);
+
+      const opened = await authed(coordinator)
+        .post('/dues/pay')
+        .send({ homecellId: fixture.homecellA1a });
+
+      const response = await authed(coordinator).get(
+        `/payments/${opened.body.data.reference}/receipt`,
+      );
+      // A document that looks like proof of an unmade payment must not be issued.
+      expect(response.status).toBe(409);
+    });
+
+    it('does not issue a receipt for another homecell’s payment', async () => {
+      await fundPurse(100_000);
+      await createMonthlyDue(5_000, 1);
+      await ensureInvoicesForHomecell(fixture.homecellA1a);
+
+      const opened = await authed(coordinator)
+        .post('/dues/pay')
+        .send({ homecellId: fixture.homecellA1a });
+      await verifyPayment(opened.body.data.reference as string);
+
+      const other = await login('hc.a1b@test.org');
+      const response = await authed(other).get(
+        `/payments/${opened.body.data.reference}/receipt`,
+      );
+      expect(response.status).toBe(403);
+    });
+  });
+
   describe('waivers', () => {
     it('lets a Zonal Coordinator waive an invoice, and a Homecell Coordinator not', async () => {
       await createMonthlyDue(5_000, 1);

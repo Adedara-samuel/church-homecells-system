@@ -20,11 +20,14 @@ import * as service from './remittance.service';
 export const recordRemittanceSchema = z.object({
   homecellId: objectIdSchema,
   amount: amountMajorSchema,
-  date: z.string().date('Select the remittance date'),
+  // Optional: an online payment is stamped by the server, so the client sends neither.
+  date: z.string().date('Select the remittance date').optional(),
   time: z
     .string()
     .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Enter the time as HH:mm')
     .optional(),
+  /** ISO 8601 with a UTC offset — the unambiguous form of `date` + `time`. */
+  remittedAt: z.string().datetime({ offset: true }).optional(),
   channel: z.enum(Object.values(RemittanceChannel) as [string, ...string[]]).optional(),
   email: z.string().email('Enter a valid email address').optional(),
   paymentReference: z.string().trim().max(120).optional(),

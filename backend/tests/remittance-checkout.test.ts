@@ -123,11 +123,57 @@ describe('Remittance minimum and online checkout', () => {
       const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
       const response = await authed(coordinator).post('/remittances').send({
         homecellId: fixture.homecellA1a,
-        amount: 1_000,
+        // At the minimum, so a rejection can only be about the date.
+        amount: 300_000,
         date: tomorrow,
       });
 
       expect(response.status).toBe(422);
+      expect(response.body.error.message).toContain('future');
+    });
+
+    /**
+     * A coordinator in Lagos (UTC+1) submitting "09:41" to a server running in UTC
+     * used to be rejected as an hour into the future. A wall clock carries no
+     * timezone, so it is clamped rather than refused.
+     */
+    it('accepts a wall-clock time that only looks like the future to the server', async () => {
+      const ahead = new Date(Date.now() + 3 * 60 * 60 * 1000);
+      const response = await authed(coordinator).post('/remittances').send({
+        homecellId: fixture.homecellA1a,
+        amount: 300_000,
+        date: today(),
+        time: `${String(ahead.getHours()).padStart(2, '0')}:${String(ahead.getMinutes()).padStart(2, '0')}`,
+      });
+
+      expect(response.status).toBe(201);
+      // Clamped to now — never stored ahead of the clock.
+      expect(new Date(response.body.data.remittedAt).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+    });
+
+    it('honours an explicit instant sent with a UTC offset', async () => {
+      const sentAt = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      const response = await authed(coordinator).post('/remittances').send({
+        homecellId: fixture.homecellA1a,
+        amount: 300_000,
+        date: today(),
+        remittedAt: sentAt.toISOString(),
+      });
+
+      expect(response.status).toBe(201);
+      expect(new Date(response.body.data.remittedAt).toISOString()).toBe(sentAt.toISOString());
+    });
+
+    it('still refuses a genuinely future instant', async () => {
+      const response = await authed(coordinator).post('/remittances').send({
+        homecellId: fixture.homecellA1a,
+        amount: 300_000,
+        date: today(),
+        remittedAt: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(),
+      });
+
+      expect(response.status).toBe(422);
+      expect(response.body.error.message).toContain('future');
     });
 
     it('imposes no minimum once the purse is under its threshold', async () => {
@@ -157,15 +203,20 @@ describe('Remittance minimum and online checkout', () => {
       await fundPurse(400_000);
     });
 
-    it('opens a checkout without moving any money', async () => {
+    /** An online payment carries no client-supplied date: the server stamps it. */
+    it('opens a checkout without moving any money, stamped by the server clock', async () => {
       const before = await balanceOf();
+      const openedAt = Date.now();
 
       const response = await authed(coordinator).post('/remittances').send({
         homecellId: fixture.homecellA1a,
         amount: 300_000,
-        ...justNow(),
         channel: 'PROVIDER_CHECKOUT',
       });
+
+      const stamped = new Date(response.body.data.remittedAt).getTime();
+      expect(stamped).toBeGreaterThanOrEqual(openedAt - 2000);
+      expect(stamped).toBeLessThanOrEqual(Date.now() + 1000);
 
       expect(response.status).toBe(201);
       expect(response.body.data.checkout.authorizationUrl).toContain('/payments/mock/');

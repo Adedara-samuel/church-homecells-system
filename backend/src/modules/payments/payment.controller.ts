@@ -23,6 +23,7 @@ import {
 } from '../../types/enums';
 import { dayjs } from '../../utils/dates';
 import { asyncHandler, created, ok, paginated } from '../../utils/http';
+import { paymentReceiptPdf } from '../receipts/receipt.service';
 import * as service from './payment.service';
 import * as reconciliation from './reconciliation.service';
 import { providerStatuses } from './providers';
@@ -75,6 +76,26 @@ paymentRouter.get(
   '/providers',
   requirePermission(Permission.PAYMENTS_VIEW),
   asyncHandler(async (_req: Request, res: Response) => ok(res, providerStatuses())),
+);
+
+/**
+ * The receipt for any settled online payment, as a PDF download.
+ *
+ * One route whatever the payment was for: it resolves to the remittance or dues
+ * receipt when the payment is linked to one, and the general form otherwise, so the
+ * caller never has to know which shape it will get.
+ */
+paymentRouter.get(
+  '/:reference/receipt',
+  requirePermission(Permission.PAYMENTS_VIEW),
+  validate({ params: z.object({ reference: z.string().trim().min(6).max(64) }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { buffer, filename } = await paymentReceiptPdf(currentUser(req), req.params.reference);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', String(buffer.length));
+    return res.send(buffer);
+  }),
 );
 
 paymentRouter.get(

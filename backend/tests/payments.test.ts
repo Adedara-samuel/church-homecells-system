@@ -95,6 +95,25 @@ describe('Payments', () => {
     expect(await balanceOf()).toBe(before + toMinor(20_000));
   });
 
+  /**
+   * An online offering is not linked to a remittance or a dues invoice, so it takes
+   * the general receipt form. Every settled online payment produces one.
+   */
+  it('issues a receipt for a settled online offering', async () => {
+    const payment = await initiatePayment(15_000);
+    await deliverWebhook({
+      event: 'charge.success',
+      data: { reference: payment.reference, status: 'success', amount: toMinor(15_000) },
+    });
+
+    const response = await authed(coordinator).get(`/payments/${payment.reference}/receipt`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toBe('application/pdf');
+    expect(response.headers['content-disposition']).toContain('.pdf');
+    expect(response.body.slice(0, 4).toString()).toBe('%PDF');
+  });
+
   it('ignores repeated deliveries of the same webhook (idempotency)', async () => {
     const before = await balanceOf();
     const payment = await initiatePayment(30_000);

@@ -21,7 +21,7 @@ import {
   DialogTitle,
 } from '@/components/ui/overlays';
 import { PageHeader, StatusBadge } from '@/components/common/page';
-import { DuesReceiptButton } from '../remittances/dues-panel';
+import { PaymentReceiptButton } from '@/components/common/receipt-button';
 import { DataTable, type Column } from '@/components/common/data-table';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/common/states';
 import { DateFilter, FilterBar, FilterSelect, OrgFilters } from '@/components/common/filters';
@@ -98,10 +98,10 @@ export default function PaymentsPage() {
       hideOnMobile: true,
       render: (payment) => (
         <div className="flex justify-end gap-1">
-          {/* Dues receipts are issued against the payment that settled them, since one
-              payment can cover several months. */}
-          {payment.purpose === 'DUES' && payment.status === 'SUCCESSFUL' && (
-            <DuesReceiptButton reference={payment.reference} />
+          {/* Every settled online payment has a receipt. The endpoint resolves to the
+              remittance or dues form when the payment is linked to one. */}
+          {payment.status === 'SUCCESSFUL' && (
+            <PaymentReceiptButton reference={payment.reference} />
           )}
           {payment.authorizationUrl && payment.status === 'PROCESSING' && (
             <Button variant="ghost" size="sm" asChild>
