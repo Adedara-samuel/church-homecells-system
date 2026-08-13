@@ -38,6 +38,14 @@ export interface NavItem {
 export interface NavSection {
   label: string;
   items: NavItem[];
+  /** Shown on the group header, and as the collapsed group's only visual anchor. */
+  icon?: LucideIcon;
+  /**
+   * Rendered as plain links with no group header. Single destinations a coordinator
+   * reaches constantly — putting them behind a disclosure would cost a click every
+   * time to reveal one item.
+   */
+  pinned?: boolean;
 }
 
 /**
@@ -49,13 +57,16 @@ export interface NavSection {
 export const NAVIGATION: NavSection[] = [
   {
     label: 'Overview',
+    pinned: true,
     items: [
       { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, exact: true },
       { label: 'Notifications', href: '/notifications', icon: Bell, permissions: ['notifications.view'] },
+      { label: 'Reports', href: '/reports', icon: BarChart3, permissions: ['reports.view'] },
     ],
   },
   {
     label: 'Church structure',
+    icon: Landmark,
     items: [
       { label: 'Zones', href: '/structure/zones', icon: Landmark, permissions: ['zones.view'] },
       { label: 'Areas', href: '/structure/areas', icon: Building2, permissions: ['areas.view'] },
@@ -64,6 +75,7 @@ export const NAVIGATION: NavSection[] = [
   },
   {
     label: 'People',
+    icon: Users,
     items: [
       { label: 'Members', href: '/members', icon: Users, permissions: ['members.view'] },
       { label: 'Transfers', href: '/transfers', icon: ArrowLeftRight, permissions: ['transfers.view'] },
@@ -72,6 +84,7 @@ export const NAVIGATION: NavSection[] = [
   },
   {
     label: 'Finance',
+    icon: Wallet,
     items: [
       { label: 'Homecell purses', href: '/finance/purses', icon: Wallet, permissions: ['finance.view'] },
       { label: 'Offerings', href: '/finance/offerings', icon: Banknote, permissions: ['finance.view'] },
@@ -106,11 +119,8 @@ export const NAVIGATION: NavSection[] = [
     ],
   },
   {
-    label: 'Insight',
-    items: [{ label: 'Reports', href: '/reports', icon: BarChart3, permissions: ['reports.view'] }],
-  },
-  {
     label: 'Administration',
+    icon: Shield,
     items: [
       { label: 'Users', href: '/admin/users', icon: UserCog, permissions: ['users.view'] },
       { label: 'SMS', href: '/admin/sms', icon: MessageSquare, permissions: ['sms.view'] },

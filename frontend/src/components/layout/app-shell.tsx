@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/overlays';
 import { LogoMark } from '@/components/brand/logo';
 import { NAVIGATION, ROLE_LABELS } from './navigation';
+import { SidebarNav } from './sidebar-nav';
 
 function useVisibleNavigation() {
   const { canAny } = useAuth();
@@ -47,11 +48,6 @@ function useVisibleNavigation() {
       })).filter((section) => section.items.length > 0),
     [canAny],
   );
-}
-
-function isActivePath(pathname: string, href: string, exact?: boolean): boolean {
-  if (exact) return pathname === href;
-  return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
@@ -73,39 +69,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
 
-      <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-5" aria-label="Main navigation">
-        {sections.map((section) => (
-          <div key={section.label}>
-            <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
-              {section.label}
-            </p>
-            <ul className="space-y-0.5">
-              {section.items.map((item) => {
-                const active = isActivePath(pathname, item.href, item.exact);
-                const Icon = item.icon;
-                return (
-                  <li key={item.href}>
-                    <Link
-                      href={item.href}
-                      onClick={onNavigate}
-                      aria-current={active ? 'page' : undefined}
-                      className={cn(
-                        'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors',
-                        active
-                          ? 'bg-sidebar-accent font-medium text-white'
-                          : 'text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-white',
-                      )}
-                    >
-                      <Icon className="h-4 w-4 shrink-0" />
-                      <span className="truncate">{item.label}</span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
-      </nav>
+      <SidebarNav sections={sections} pathname={pathname} onNavigate={onNavigate} />
     </div>
   );
 }
